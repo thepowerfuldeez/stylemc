@@ -128,7 +128,7 @@ def generate_images(
     for i in G.parameters():
         i.requires_grad = True
 
-    mean, std = get_mean_std()
+    mean, std = get_mean_std(device)
 
     transf = Compose([
         Resize(224, interpolation=Image.BICUBIC),

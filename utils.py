@@ -85,7 +85,7 @@ def split_ws(G, ws):
     return block_ws
 
 
-def get_mean_std():
+def get_mean_std(device):
     mean = torch.as_tensor((0.48145466, 0.4578275, 0.40821073), dtype=torch.float, device=device)
     std = torch.as_tensor((0.26862954, 0.26130258, 0.27577711), dtype=torch.float, device=device)
     if mean.ndim == 1:

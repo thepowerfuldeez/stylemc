@@ -14,8 +14,8 @@ import click
 from typing import List, Optional
 
 import torch
-import PIL
 import numpy as np
+from PIL import Image
 
 import legacy
 import dnnlib
@@ -57,7 +57,7 @@ def generate_images(
         for idx, w in enumerate(ws):
             img = G.synthesis(w.unsqueeze(0), noise_mode=noise_mode)
             img = (img.permute(0, 2, 3, 1) * 127.5 + 128).clamp(0, 255)
-            img = PIL.Image.fromarray(img[0].to(torch.uint8).cpu().numpy(), 'RGB')
+            img = Image.fromarray(img[0].to(torch.uint8).cpu().numpy(), 'RGB')
             img.save(f'{outdir}/proj{idx:02d}.png')
         return
 
@@ -96,7 +96,7 @@ def generate_images(
                 styles -= styles_direction * grad_change
 
             img_filepath = f'{outdir}/{text_prompt.replace(" ", "_")}_{i:03d}.jpeg'
-            PIL.Image.fromarray(np.concatenate(imgs, axis=1), 'RGB').save(img_filepath, quality=95)
+            Image.fromarray(np.concatenate(imgs, axis=1), 'RGB').save(img_filepath, quality=95)
 
         print("time passed:", time.time() - t1)
 

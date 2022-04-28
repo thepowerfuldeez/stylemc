@@ -20,7 +20,6 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from torchvision.transforms import Compose, Resize, CenterCrop
-import PIL.Image
 from PIL import Image
 
 import legacy
@@ -67,7 +66,7 @@ def find_direction(
     for i in G.parameters():
         i.requires_grad = True
 
-    mean, std = get_mean_std()
+    mean, std = get_mean_std(device)
 
     transf = Compose([Resize(224, interpolation=Image.BICUBIC), CenterCrop(224)])
 
@@ -139,7 +138,10 @@ def find_direction(
 
         (identity_loss + cos_sim.sum()).backward(retain_graph=True)
 
-        styles_direction.grad[:, [0, 1, 4, 7, 10, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25], :] = 0
+        # why is that
+        # styles_direction.grad[:, [0, 1, 4, 7, 10, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25], :] = 0
+        styles_direction.grad[:, [20, 21, 22, 23, 24, 25], :] = 0
+
         if i % 2 == 1:
             styles_direction.data = (styles_direction - styles_direction.grad * 5)
             grads.append(styles_direction.grad.clone())
