@@ -22,6 +22,7 @@ import torch.nn.functional as F
 import dnnlib
 import legacy
 
+
 def project(
     G,
     target: torch.Tensor, # [C,H,W] and dynamic range [0,255], W & H must match G output resolution

@@ -16,10 +16,10 @@ import copy
 import torch
 import dnnlib
 
-import legacy
 from metrics import metric_main
 from metrics import metric_utils
 from torch_utils import training_stats
+import legacy
 from torch_utils import custom_ops
 from torch_utils import misc
 
