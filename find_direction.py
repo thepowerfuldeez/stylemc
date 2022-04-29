@@ -28,6 +28,11 @@ from id_loss import IDLoss
 from utils import get_mean_std, generate_image, get_temp_shapes
 
 
+# 18 real, 8 for torgb layers
+N_STYLE_CHANNELS = 26
+S_SPACE_CHANNELS = [0, 1, 4, 7, 10, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25]
+
+
 @click.command()
 @click.pass_context
 @click.option('--network', 'network_pkl', help='Network pickle filename', required=True)
@@ -56,7 +61,6 @@ def find_direction(
         G = legacy.load_network_pkl(f)['G_ema'].to(device)  # type: ignore
 
     os.makedirs(outdir, exist_ok=True)
-    label = torch.zeros([1, G.c_dim], device=device).requires_grad_()
 
     model, preprocess = clip.load("ViT-B/32", device=device)
     text = clip.tokenize([text_prompt]).to(device)
@@ -76,10 +80,12 @@ def find_direction(
     temp_shapes = get_temp_shapes(G)
 
     resolution_dict = {256: 6, 512: 7, 1024: 8}
-    id_coeff_dict = {"high": 2, "medium": 0.5, "low": 0.15, "none": 0}
+    id_coeff_dict = {"high": 2, "medium": 0.5, "low": 0.05, "none": 0}
     id_coeff = id_coeff_dict[identity_power]
-    styles_direction = torch.zeros(1, 26, 512, device=device)
-    styles_direction_grad_el2 = torch.zeros(1, 26, 512, device=device)
+
+    styles_direction = torch.zeros(1, N_STYLE_CHANNELS, 512, device=device)
+    styles_direction_grad_el2 = torch.zeros(1, N_STYLE_CHANNELS, 512, device=device)
+
     styles_direction.requires_grad_()
 
     global id_loss
@@ -115,7 +121,8 @@ def find_direction(
 
     t1 = time.time()
     # zero opt
-    styles_direction.grad[:, list(range(26)), :] = 0
+    styles_direction.grad[:, list(range(N_STYLE_CHANNELS)), :] = 0
+
     with torch.no_grad():
         styles_direction *= 0
 
@@ -138,9 +145,8 @@ def find_direction(
 
         (identity_loss + cos_sim.sum()).backward(retain_graph=True)
 
-        # why is that
-        # styles_direction.grad[:, [0, 1, 4, 7, 10, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25], :] = 0
-        styles_direction.grad[:, [20, 21, 22, 23, 24, 25], :] = 0
+        # actual style vector
+        styles_direction.grad[:, S_SPACE_CHANNELS, :] = 0
 
         if i % 2 == 1:
             styles_direction.data = (styles_direction - styles_direction.grad * 5)

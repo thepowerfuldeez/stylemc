@@ -126,6 +126,7 @@ def get_styles(G, ws, block_ws, device):
         for res, cur_ws in zip(G.synthesis.block_resolutions, block_ws):
             block = getattr(G.synthesis, f'b{res}')
 
+            # first block
             if res == 4:
                 temp_shape = (block.conv1.affine.weight.shape[0], block.conv1.affine.weight.shape[0],
                               block.torgb.affine.weight.shape[0])

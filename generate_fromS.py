@@ -31,7 +31,7 @@ from utils import get_temp_shapes, generate_image, block_forward, num_range
 @click.option('--s_input', help='Projection result file', type=str, metavar='FILE')
 @click.option('--outdir', help='Where to save the output images', type=str, required=True, metavar='DIR')
 @click.option('--text_prompt', help='Text', type=str, required=True)
-@click.option('--change_power', help='Change power', type=int, required=True)
+@click.option('--change_power', help='Change power', type=float, required=True)
 def generate_images(
         ctx: click.Context,
         network_pkl: str,
@@ -40,7 +40,7 @@ def generate_images(
         projected_w: Optional[str],
         s_input: Optional[str],
         text_prompt: str,
-        change_power: int,
+        change_power: float,
 ):
     print('Loading networks from "%s"...' % network_pkl)
     device = torch.device('cuda')
