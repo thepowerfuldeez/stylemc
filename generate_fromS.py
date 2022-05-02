@@ -29,9 +29,10 @@ from utils import get_temp_shapes, generate_image, block_forward, num_range
               show_default=True)
 @click.option('--projected-w', help='Projection result file', type=str, metavar='FILE')
 @click.option('--s_input', help='Projection result file', type=str, metavar='FILE')
+@click.option('--n', help='generate first n results', type=int, metavar='FILE', default=99999)
 @click.option('--outdir', help='Where to save the output images', type=str, required=True, metavar='DIR')
 @click.option('--text_prompt', help='Text', type=str, required=True)
-@click.option('--change_power', help='Change power', type=float, required=True)
+@click.option('--change_power', help='Change power', type=float, required=True, default=2.0)
 def generate_images(
         ctx: click.Context,
         network_pkl: str,
@@ -39,6 +40,7 @@ def generate_images(
         outdir: str,
         projected_w: Optional[str],
         s_input: Optional[str],
+        n: int,
         text_prompt: str,
         change_power: float,
 ):
@@ -51,7 +53,8 @@ def generate_images(
     # Synthesize the result of a W projection.
     if projected_w is not None:
         print(f'Generating images from projected W "{projected_w}"')
-        ws = np.load(projected_w)['w']
+        ws = np.load(projected_w)['w'][:n]
+        print(f"loaded {len(ws)} ws")
         ws = torch.tensor(ws, device=device) # pylint: disable=not-callable
         assert ws.shape[1:] == (G.num_ws, G.w_dim)
         for idx, w in enumerate(ws):
@@ -72,8 +75,9 @@ def generate_images(
     temp_shapes = get_temp_shapes(G)
 
     if s_input is not None:
-        styles = np.load(s_input)['s']
+        styles = np.load(s_input)['s'][:n]
         styles = torch.tensor(styles, device=device)
+        print(f"loaded {len(styles)} styles")
 
         styles_direction = np.load(f'{outdir}/direction_' + text_prompt.replace(" ", "_") + '.npz')['s']
         styles_direction = torch.tensor(styles_direction, device=device)
