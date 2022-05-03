@@ -19,6 +19,7 @@ import clip
 import numpy as np
 import torch
 import torch.nn.functional as F
+from torch.optim import AdamW, SGD, Adam
 from torchvision.transforms import Compose, Resize, CenterCrop
 from PIL import Image
 
@@ -26,12 +27,21 @@ import legacy
 import dnnlib
 from id_loss import IDLoss
 from clip_loss import CLIPLoss
+from landmarks_loss import LandmarksLoss
 from utils import read_image_mask, get_mean_std, generate_image, get_temp_shapes
+from mobilenet_facial import MobileNet_GDConv
 
 
 # 18 real, 8 for torgb layers
 N_STYLE_CHANNELS = 26
-S_SPACE_CHANNELS = [0, 1, 4, 7, 10, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25]
+S_NON_TRAINABLE_SPACE_CHANNELS = [0, 1, 4, 7, 10, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25]
+S_TRAINABLE_SPACE_CHANNELS = [2, 3, 5, 6, 8, 9, 11, 12]
+
+
+def unprocess(img, transf, mean, std):
+    img = (img.permute(0, 2, 3, 1) * 127.5 + 128).clamp(0, 255)
+    img = (transf(img.permute(0, 3, 1, 2)) / 255).sub_(mean).div_(std)
+    return img
 
 
 @click.command()
@@ -53,9 +63,11 @@ S_SPACE_CHANNELS = [0, 1, 4, 7, 10, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 
 @click.option('--resolution', help='Resolution of output images', type=int, required=True, default=256)
 @click.option('--batch_size', help='Batch Size', type=int, required=True, default=4)
 @click.option('--learning_rate', help='Learning rate for s estimation, defaults to 2.5',
-              type=float, required=True, default=2.5)
+              type=float, required=True, default=1.5)
 @click.option('--n_epochs', help='number of epochs', type=int, required=True, default=4)
 @click.option('--identity_loss_coef', help='Identity loss coef', type=float, required=True, default=0.6)
+@click.option('--landmarks_loss_coef', help='Landmarks loss coef', type=float, required=True, default=25.0)
+@click.option('--l2_reg_coef', help='Landmarks loss coef', type=float, required=True, default=0.01)
 @click.option('--clip_loss_coef', help='CLIP loss coef', type=float, required=True, default=1.0)
 def find_direction(
         ctx: click.Context,
@@ -73,6 +85,8 @@ def find_direction(
         learning_rate: float,
         n_epochs: int,
         identity_loss_coef: float,
+        landmarks_loss_coef: float,
+        l2_reg_coef: float,
         clip_loss_coef: float,
 ):
     print('Loading networks from "%s"...' % network_pkl)
@@ -98,7 +112,15 @@ def find_direction(
 
     # trainable delta-s
     styles_direction = torch.zeros(1, N_STYLE_CHANNELS, 512, device=device)
-    styles_direction.requires_grad_()
+
+    trainable_delta_s = styles_direction.index_select(1, torch.tensor(S_TRAINABLE_SPACE_CHANNELS, device=device))
+    trainable_delta_s.requires_grad = True
+
+    checkpoint = torch.load("mobilenet_224_model_best_gdconv_external.pth.tar", map_location=device)
+    mobilenet = torch.nn.DataParallel(MobileNet_GDConv(136)).to(device)
+    mobilenet.eval()
+    mobilenet.load_state_dict(checkpoint['state_dict'])
+    landmarks_loss = LandmarksLoss()
 
     id_loss = IDLoss("a").to(device).eval()
     if clip_type == "double":
@@ -115,7 +137,6 @@ def find_direction(
         masks_paths = [f"{masks_dir}/proj{idx[i]:02d}.png" for i in range(n_items)]
         masks = [read_image_mask(path, mask_min_value=mask_min_value, dilation=True) for path in masks_paths]
 
-
     temp_photos = []
     grads = []
     for i in range(math.ceil(n_items / batch_size)):
@@ -128,21 +149,35 @@ def find_direction(
         img2_cpu = img2.detach().cpu().numpy()
         temp_photos.append(img2_cpu)
 
+    opt = SGD([trainable_delta_s], lr=learning_rate)
+
     t1 = time.time()
     for epoch in range(n_epochs):
-        for i in range(math.ceil(n_items / batch_size)):
+        for _ in range(math.ceil(n_items / batch_size)):
+            opt.zero_grad()
+
+            i = np.random.randint(0, math.ceil(n_items / batch_size))
             styles = styles_array[i * batch_size:(i + 1) * batch_size].to(device)
 
             # new style vector
+            styles_direction[:, S_TRAINABLE_SPACE_CHANNELS] = trainable_delta_s
             styles2 = styles + styles_direction
             _, img = generate_image(G, resolution_dict[resolution], styles2, temp_shapes, noise_mode)
 
             # use original image for identity loss
-            identity_loss, _ = id_loss(img, torch.tensor(temp_photos[i]).to(device))
+            original_img = torch.tensor(temp_photos[i]).to(device)
+            identity_loss, _ = id_loss(img, original_img)
             identity_loss *= id_coeff
 
-            img = (img.permute(0, 2, 3, 1) * 127.5 + 128).clamp(0, 255)
-            img = (transf(img.permute(0, 3, 1, 2)) / 255).sub_(mean).div_(std)
+            img = unprocess(img, transf, mean, std)
+
+            with torch.no_grad():
+                landmarks1 = mobilenet(unprocess(original_img, transf, mean, std))
+                landmarks1 = landmarks1.view(landmarks1.size(0), -1, 2)
+                landmarks2 = mobilenet(img)
+                landmarks2 = landmarks2.view(landmarks2.size(0), -1, 2)
+            face_landmarks_loss = landmarks_loss(landmarks1, landmarks2)
+            face_landmarks_loss *= landmarks_loss_coef
 
             if only_face_mask:
                 mask = torch.stack(masks[i * batch_size:(i + 1) * batch_size]).unsqueeze(1).to(device)
@@ -162,22 +197,21 @@ def find_direction(
                 clip_alignment_loss = clip_loss(img)
             clip_alignment_loss *= clip_loss_coef
 
-            loss = identity_loss + clip_alignment_loss
+            manipulation_direction_loss = trainable_delta_s.norm(2, dim=-1).mean()
+            manipulation_direction_loss *= l2_reg_coef
+
+            loss = identity_loss + clip_alignment_loss + manipulation_direction_loss + face_landmarks_loss
             loss.backward(retain_graph=True)
 
-            # set zeros to gradients on real s channels
-            style_grad = styles_direction.grad
-            style_grad[:, S_SPACE_CHANNELS, :] = 0
-            # indices not in S_SPACE_CHANNELS
-            grad_norm = style_grad[:, [j for j in range(N_STYLE_CHANNELS) if j not in S_SPACE_CHANNELS]].norm()
-
-            styles_direction.data = (styles_direction - style_grad * learning_rate)
-            grads.append(style_grad.clone())
-            style_grad.data.zero_()
+            grad_norm = torch.nn.utils.clip_grad_norm_(trainable_delta_s, max_norm=0.1)
+            grads.append(trainable_delta_s.grad.clone())
+            opt.step()
 
             print(f"Iteration {i}, img size: {img.size(-1)} , gradient norm: {grad_norm:.4f}")
             print(f"Clip loss: {clip_alignment_loss.item():.3f}, "
                   f"Identity loss: {identity_loss.item():.3f}, "
+                  f"Landmarks loss: {face_landmarks_loss.item():.3f}, "
+                  f"Manipulation direction loss: {manipulation_direction_loss.item():.3f}, "
                   f"Total loss: {loss.item():.4f}")
 
     styles_direction = styles_direction.detach()
