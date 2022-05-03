@@ -1,6 +1,8 @@
 import re
 from typing import List
 
+import cv2
+from PIL import Image
 import numpy as np
 import torch
 
@@ -174,3 +176,15 @@ def generate_image(G, until_k, styles, temp_shapes, noise_mode):
                                    noise_mode=noise_mode)
             styles_idx += 3
     return x, img
+
+
+def read_image_mask(mask_path, mask_min_value=0.0, dilation=True):
+    segm_mask = np.array(Image.open(mask_path))
+    mask = ((segm_mask == 0) | (segm_mask == 13) | (segm_mask == 14) | (segm_mask == 8) |
+            (segm_mask == 9) | (segm_mask == 15) | (segm_mask == 16) | (segm_mask == 18))
+    segm_mask = segm_mask.astype('float')
+    segm_mask[mask] = mask_min_value
+    segm_mask[~mask] = 1
+    if dilation:
+        segm_mask = cv2.dilate(segm_mask, np.ones((20, 20)), iterations=3)
+    return torch.tensor(segm_mask).float()
