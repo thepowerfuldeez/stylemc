@@ -28,9 +28,9 @@ import dnnlib
 from id_loss import IDLoss
 from clip_loss import CLIPLoss
 from clip_loss_nada import CLIPLoss as CLIPLossNADA
-from landmarks_loss import LandmarksLoss
-from utils import read_image_mask, get_mean_std, generate_image, get_temp_shapes
+from landmarks_loss import LandmarksLoss, WingLoss
 from mobilenet_facial import MobileNet_GDConv
+from utils import read_image_mask, get_mean_std, generate_image, get_temp_shapes
 
 # 18 real, 8 for torgb layers
 N_STYLE_CHANNELS = 26
@@ -100,7 +100,6 @@ def find_direction(
         G = legacy.load_network_pkl(f)['G_ema'].to(device)  # type: ignore
     os.makedirs(outdir, exist_ok=True)
 
-    # Generate images
     for p in G.parameters():
         p.requires_grad = True
     mean, std = get_mean_std(device)
@@ -123,9 +122,11 @@ def find_direction(
 
     checkpoint = torch.load("mobilenet_224_model_best_gdconv_external.pth.tar", map_location=device)
     mobilenet = torch.nn.DataParallel(MobileNet_GDConv(136)).to(device)
-    mobilenet.eval()
     mobilenet.load_state_dict(checkpoint['state_dict'])
-    landmarks_loss = LandmarksLoss()
+    mobilenet.train()
+    for p in mobilenet.parameters():
+        p.requires_grad = True
+    landmarks_loss = WingLoss(omega=5)
 
     id_loss = IDLoss("a").to(device).eval()
 
@@ -187,12 +188,11 @@ def find_direction(
             img_unprocessed = unprocess(img, transf, mean, std)
             original_img_unprocessed = unprocess(original_img, transf, mean, std)
 
-            with torch.no_grad():
-                landmarks1 = mobilenet(original_img_unprocessed)
-                landmarks1 = landmarks1.view(landmarks1.size(0), -1, 2)
-                landmarks2 = mobilenet(img_unprocessed)
-                landmarks2 = landmarks2.view(landmarks2.size(0), -1, 2)
-            face_landmarks_loss = landmarks_loss(landmarks1, landmarks2)
+            landmarks1 = mobilenet(original_img_unprocessed)
+            landmarks1 = landmarks1.view(landmarks1.size(0), -1, 2)
+            landmarks2 = mobilenet(img_unprocessed)
+            landmarks2 = landmarks2.view(landmarks2.size(0), -1, 2)
+            face_landmarks_loss = landmarks_loss(landmarks1 * img_size, landmarks2 * img_size)
             face_landmarks_loss *= landmarks_loss_coef
 
             if only_face_mask:
