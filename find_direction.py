@@ -27,10 +27,10 @@ import legacy
 import dnnlib
 from id_loss import IDLoss
 from clip_loss import CLIPLoss
+from clip_loss_nada import CLIPLoss as CLIPLossNADA
 from landmarks_loss import LandmarksLoss
 from utils import read_image_mask, get_mean_std, generate_image, get_temp_shapes
 from mobilenet_facial import MobileNet_GDConv
-
 
 # 18 real, 8 for torgb layers
 N_STYLE_CHANNELS = 26
@@ -46,7 +46,8 @@ def unprocess(img, transf, mean, std):
 
 @click.command()
 @click.pass_context
-@click.option('--network', 'network_pkl', help='Network pickle filename', required=True)
+@click.option('--network', 'network_pkl', help='Network pickle filename', required=False,
+              default="https://nvlabs-fi-cdn.nvidia.com/stylegan2-ada-pytorch/pretrained/transfer-learning-source-nets/ffhq-res512-mirror-stylegan2-noaug.pkl")
 @click.option('--noise-mode', help='Noise mode', type=click.Choice(['const', 'random', 'none']), default='const',
               show_default=True)
 @click.option('--s_input', help='Projection result file', type=str, metavar='FILE')
@@ -57,6 +58,7 @@ def unprocess(img, transf, mean, std):
 @click.option('--negative_text_prompt', help='Negative direction of text prompt (use t1 - t2 for optimizing)',
               type=str, required=False, default="a photo of a face of a masculine man")
 @click.option('--clip_type', help='Type of CLIP loss (small, large, double)', type=str, required=True, default='double')
+@click.option('--clip_loss_type', help='Type of CLIP loss (nada or default)', type=str, required=True, default='default')
 @click.option('--only_face_mask', help='Perform optimization only at face region (excluded bg, hair, ears etc)',
               type=int, required=True, default=0)
 @click.option('--mask_min_value', help='Mask min value when using face masks', type=float, required=True, default=0.1)
@@ -64,6 +66,7 @@ def unprocess(img, transf, mean, std):
 @click.option('--batch_size', help='Batch Size', type=int, required=True, default=4)
 @click.option('--learning_rate', help='Learning rate for s estimation, defaults to 2.5',
               type=float, required=True, default=1.5)
+@click.option('--clip_gradient_norm', help='clip gradient norm', type=float, required=True, default=0.1)
 @click.option('--n_epochs', help='number of epochs', type=int, required=True, default=4)
 @click.option('--identity_loss_coef', help='Identity loss coef', type=float, required=True, default=0.6)
 @click.option('--landmarks_loss_coef', help='Landmarks loss coef', type=float, required=True, default=25.0)
@@ -78,11 +81,13 @@ def find_direction(
         text_prompt: str,
         negative_text_prompt: Optional[str],
         clip_type: str,
+        clip_loss_type: str,
         only_face_mask: int,
         mask_min_value: float,
         resolution: int,
         batch_size: int,
         learning_rate: float,
+        clip_gradient_norm: float,
         n_epochs: int,
         identity_loss_coef: float,
         landmarks_loss_coef: float,
@@ -123,13 +128,25 @@ def find_direction(
     landmarks_loss = LandmarksLoss()
 
     id_loss = IDLoss("a").to(device).eval()
-    if clip_type == "double":
-        clip_loss1 = CLIPLoss(text_prompt, device=device,
-                              negative_text_prompt=negative_text_prompt, clip_type="small")
-        clip_loss2 = CLIPLoss(text_prompt, device=device,
-                              negative_text_prompt=negative_text_prompt, clip_type="large")
+
+    if clip_loss_type == "nada":
+        if clip_type == "double":
+            clip_loss1 = CLIPLossNADA(device, clip_model="ViT-B/32")
+            clip_loss2 = CLIPLossNADA(device, clip_model="ViT-B/16")
+        else:
+            clip_loss1 = CLIPLossNADA(device, clip_model="ViT-B/32")
+    elif clip_loss_type == "nada_global":
+        if clip_type == "double":
+            clip_loss1 = CLIPLossNADA(device, clip_model="ViT-B/32", lambda_direction=0.0, lambda_global=1.0)
+            clip_loss2 = CLIPLossNADA(device, clip_model="ViT-B/16", lambda_direction=0.0, lambda_global=1.0)
+        else:
+            clip_loss1 = CLIPLossNADA(device, clip_model="ViT-B/32", lambda_direction=0.0, lambda_global=1.0)
     else:
-        clip_loss = CLIPLoss(text_prompt, device=device, negative_text_prompt=negative_text_prompt, clip_type=clip_type)
+        if clip_type == "double":
+            clip_loss1 = CLIPLoss(device, text_prompt, negative_text_prompt, clip_type="small")
+            clip_loss2 = CLIPLoss(device, text_prompt, negative_text_prompt, clip_type="large")
+        else:
+            clip_loss1 = CLIPLoss(device, text_prompt, negative_text_prompt, clip_type=clip_type)
 
     if only_face_mask:
         idx = np.load(s_input)['idx']
@@ -154,8 +171,6 @@ def find_direction(
     t1 = time.time()
     for epoch in range(n_epochs):
         for _ in range(math.ceil(n_items / batch_size)):
-            opt.zero_grad()
-
             i = np.random.randint(0, math.ceil(n_items / batch_size))
             styles = styles_array[i * batch_size:(i + 1) * batch_size].to(device)
 
@@ -169,45 +184,64 @@ def find_direction(
             identity_loss, _ = id_loss(img, original_img)
             identity_loss *= id_coeff
 
-            img = unprocess(img, transf, mean, std)
+            img_unprocessed = unprocess(img, transf, mean, std)
+            original_img_unprocessed = unprocess(original_img, transf, mean, std)
 
             with torch.no_grad():
-                landmarks1 = mobilenet(unprocess(original_img, transf, mean, std))
+                landmarks1 = mobilenet(original_img_unprocessed)
                 landmarks1 = landmarks1.view(landmarks1.size(0), -1, 2)
-                landmarks2 = mobilenet(img)
+                landmarks2 = mobilenet(img_unprocessed)
                 landmarks2 = landmarks2.view(landmarks2.size(0), -1, 2)
             face_landmarks_loss = landmarks_loss(landmarks1, landmarks2)
             face_landmarks_loss *= landmarks_loss_coef
 
             if only_face_mask:
                 mask = torch.stack(masks[i * batch_size:(i + 1) * batch_size]).unsqueeze(1).to(device)
-                mask = F.interpolate(mask, size=img.size()[2:], mode='bilinear', align_corners=False)
-                img = img * mask
+                mask = F.interpolate(mask, size=img_unprocessed.size()[2:], mode='bilinear', align_corners=False)
+                img_unprocessed = img_unprocessed * mask
+                mask2 = mask.detach()
+                mask2[:, int(mask.size(1) * 0.85):] = mask_min_value
+                original_img_unprocessed = original_img_unprocessed * mask2
 
-            if clip_type == "double":
-                clip1_alignment_loss = clip_loss1(img)
-                clip2_alignment_loss = clip_loss2(img)
-
-                # when using double clip + only mask, no need to reduce second weight
-                if only_face_mask:
-                    clip_alignment_loss = clip1_alignment_loss + clip2_alignment_loss
+            if clip_loss_type == "nada" or clip_loss_type == "nada_global":
+                if clip_type == "double":
+                    clip1_alignment_loss = clip_loss1(original_img, negative_text_prompt, img, text_prompt)
+                    clip2_alignment_loss = clip_loss2(original_img, negative_text_prompt, img, text_prompt)
+                    # when using double clip + only mask, no need to reduce second weight
+                    if only_face_mask:
+                        clip_alignment_loss = clip1_alignment_loss + clip2_alignment_loss
+                    else:
+                        clip_alignment_loss = clip1_alignment_loss + clip2_alignment_loss * 0.5
                 else:
-                    clip_alignment_loss = clip1_alignment_loss + clip2_alignment_loss * 0.5
+                    clip_alignment_loss = clip_loss1(original_img, negative_text_prompt, img, text_prompt)
             else:
-                clip_alignment_loss = clip_loss(img)
+                if clip_type == "double":
+                    clip1_alignment_loss = clip_loss1(original_img_unprocessed, img_unprocessed)
+                    clip2_alignment_loss = clip_loss2(original_img_unprocessed, img_unprocessed)
+
+                    # when using double clip + only mask, no need to reduce second weight
+                    if only_face_mask:
+                        clip_alignment_loss = clip1_alignment_loss + clip2_alignment_loss
+                    else:
+                        clip_alignment_loss = clip1_alignment_loss + clip2_alignment_loss * 0.5
+                else:
+                    clip_alignment_loss = clip_loss1(original_img_unprocessed, img_unprocessed)
+
             clip_alignment_loss *= clip_loss_coef
 
             manipulation_direction_loss = trainable_delta_s.norm(2, dim=-1).mean()
             manipulation_direction_loss *= l2_reg_coef
 
             loss = identity_loss + clip_alignment_loss + manipulation_direction_loss + face_landmarks_loss
+
+            opt.zero_grad()
             loss.backward(retain_graph=True)
 
-            grad_norm = torch.nn.utils.clip_grad_norm_(trainable_delta_s, max_norm=0.1)
+            grad_norm = torch.nn.utils.clip_grad_norm_(trainable_delta_s, max_norm=clip_gradient_norm)
             grads.append(trainable_delta_s.grad.clone())
             opt.step()
 
-            print(f"Iteration {i}, img size: {img.size(-1)} , gradient norm: {grad_norm:.4f}")
+            print(f"Iteration {i}, img size: {img_unprocessed.size(-1)} , gradient norm: {grad_norm:.4f}")
             print(f"Clip loss: {clip_alignment_loss.item():.3f}, "
                   f"Identity loss: {identity_loss.item():.3f}, "
                   f"Landmarks loss: {face_landmarks_loss.item():.3f}, "

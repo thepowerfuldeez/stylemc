@@ -24,7 +24,8 @@ from utils import get_temp_shapes, generate_image, block_forward, num_range
 
 @click.command()
 @click.pass_context
-@click.option('--network', 'network_pkl', help='Network pickle filename', required=True)
+@click.option('--network', 'network_pkl', help='Network pickle filename', required=False,
+              default="https://nvlabs-fi-cdn.nvidia.com/stylegan2-ada-pytorch/pretrained/transfer-learning-source-nets/ffhq-res512-mirror-stylegan2-noaug.pkl")
 @click.option('--noise-mode', help='Noise mode', type=click.Choice(['const', 'random', 'none']), default='const',
               show_default=True)
 @click.option('--projected-w', help='Projection result file', type=str, metavar='FILE')
@@ -55,7 +56,7 @@ def generate_images(
         print(f'Generating images from projected W "{projected_w}"')
         ws = np.load(projected_w)['w'][:n]
         print(f"loaded {len(ws)} ws")
-        ws = torch.tensor(ws, device=device) # pylint: disable=not-callable
+        ws = torch.tensor(ws, device=device)  # pylint: disable=not-callable
         assert ws.shape[1:] == (G.num_ws, G.w_dim)
         for idx, w in enumerate(ws):
             img = G.synthesis(w.unsqueeze(0), noise_mode=noise_mode)
@@ -63,7 +64,6 @@ def generate_images(
             img = Image.fromarray(img[0].to(torch.uint8).cpu().numpy(), 'RGB')
             img.save(f'{outdir}/proj{idx:02d}.png')
         return
-
 
     # ----------------------------------------
 
