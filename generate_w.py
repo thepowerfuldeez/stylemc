@@ -25,11 +25,13 @@ from utils import num_range
 @click.option('--network', 'network_pkl', help='Network pickle filename', required=True)
 @click.option('--seeds', type=num_range, help='List of random seeds')
 @click.option('--trunc', 'truncation_psi', type=float, help='Truncation psi', default=1, show_default=True)
+@click.option('--out_file', type=str, help='out file path', default='encoder4editing/projected_w.npz')
 def generate_images(
         ctx: click.Context,
         network_pkl: str,
         seeds: Optional[List[int]],
-        truncation_psi: float
+        truncation_psi: float,
+        out_file: str,
 ):
     print('Loading networks from "%s"...' % network_pkl)
     device = torch.device('cuda')
@@ -45,7 +47,7 @@ def generate_images(
     zs = torch.cat([torch.from_numpy(np.random.RandomState(seed_).randn(1, G.z_dim)) for seed_ in seeds])
     z = zs.to(device)
     ws = G.mapping(z, label, truncation_psi=truncation_psi)
-    np.savez(f'encoder4editing/projected_w.npz', w=ws.detach().cpu().numpy())
+    np.savez(out_file, w=ws.detach().cpu().numpy())
 
 
 # ----------------------------------------------------------------------------

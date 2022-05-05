@@ -27,12 +27,12 @@ from utils import split_ws, get_styles
 @click.pass_context
 @click.option('--network', 'network_pkl', help='Network pickle filename', required=True)
 @click.option('--projected-w', help='Projection result file', type=str, metavar='FILE')
-@click.option('--outdir', help='Where to save the output images', type=str, required=True, metavar='DIR')
+@click.option('--out_file', type=str, help='out file path', default='out/input.npz')
 def generate_images(
         ctx: click.Context,
         network_pkl: str,
-        outdir: str,
         projected_w: Optional[str],
+        out_file: str,
 ):
     """Generate images using pretrained network pickle.
 
@@ -64,6 +64,7 @@ def generate_images(
     with dnnlib.util.open_url(network_pkl) as f:
         G = legacy.load_network_pkl(f)['G_ema'].to(device)  # type: ignore
 
+    outdir = os.path.dirname(out_file)
     os.makedirs(outdir, exist_ok=True)
 
     # Generate images.
@@ -77,7 +78,7 @@ def generate_images(
         block_ws = split_ws(G, ws)
 
     styles, temp_shapes = get_styles(G, ws, block_ws, device)
-    np.savez(f'{outdir}/input.npz', s=styles.cpu().numpy())
+    np.savez(out_file, s=styles.cpu().numpy())
 
 
 if __name__ == "__main__":
