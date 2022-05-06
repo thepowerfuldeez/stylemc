@@ -58,7 +58,8 @@ def unprocess(img, transf, mean, std):
 @click.option('--negative_text_prompt', help='Negative direction of text prompt (use t1 - t2 for optimizing)',
               type=str, required=False, default="a photo of a face of a masculine man")
 @click.option('--clip_type', help='Type of CLIP loss (small, large, double)', type=str, required=True, default='double')
-@click.option('--clip_loss_type', help='Type of CLIP loss (nada or default)', type=str, required=True, default='default')
+@click.option('--clip_loss_type', help='Type of CLIP loss (nada or default)', type=str, required=True,
+              default='default')
 @click.option('--only_face_mask', help='Perform optimization only at face region (excluded bg, hair, ears etc)',
               type=int, required=True, default=0)
 @click.option('--mask_min_value', help='Mask min value when using face masks', type=float, required=True, default=0.1)
@@ -168,10 +169,21 @@ def find_direction(
         temp_photos.append(img2_cpu)
 
     opt = SGD([trainable_delta_s], lr=learning_rate)
+    num_batches = math.ceil(n_items / batch_size)
+    total_num_iterations = num_batches * n_epochs
+    cur_iteration = 0
+    print(f"Total number of iterations: {total_num_iterations}")
 
     t1 = time.time()
     for epoch in range(n_epochs):
-        for _ in range(math.ceil(n_items / batch_size)):
+        for _ in range(num_batches):
+            cur_iteration += 1
+            # change learning rate param group of optimizer with cosine rule
+            new_learning_rate = np.cos(
+                np.pi * cur_iteration / total_num_iterations) * learning_rate * 0.5 + learning_rate * 0.5
+            for param_group in opt.param_groups:
+                param_group['lr'] = new_learning_rate
+
             i = np.random.randint(0, math.ceil(n_items / batch_size))
             styles = styles_array[i * batch_size:(i + 1) * batch_size].to(device)
 
@@ -241,7 +253,8 @@ def find_direction(
             grads.append(trainable_delta_s.grad.clone())
             opt.step()
 
-            print(f"Iteration {i}, img size: {img_unprocessed.size(-1)} , gradient norm: {grad_norm:.4f}")
+            print(f"Iteration {cur_iteration}, img size: {img_unprocessed.size(-1)}, gradient norm: {grad_norm:.4f}, "
+                  f"lr: {new_learning_rate:.4f}")
             print(f"Clip loss: {clip_alignment_loss.item():.3f}, "
                   f"Identity loss: {identity_loss.item():.3f}, "
                   f"Landmarks loss: {face_landmarks_loss.item():.3f}, "
