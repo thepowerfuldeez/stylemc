@@ -29,8 +29,10 @@ from id_loss import IDLoss
 from clip_loss import CLIPLoss
 from clip_loss_nada import CLIPLoss as CLIPLossNADA
 from landmarks_loss import LandmarksLoss, WingLoss
+from MTCNN import detect_faces
 from mobilenet_facial import MobileNet_GDConv
 from utils import read_image_mask, get_mean_std, generate_image, get_temp_shapes
+from warp_images import crop_face
 
 # 18 real, 8 for torgb layers
 N_STYLE_CHANNELS = 26
@@ -38,10 +40,34 @@ S_NON_TRAINABLE_SPACE_CHANNELS = [0, 1, 4, 7, 10, 13, 14, 15, 16, 17, 18, 19, 20
 S_TRAINABLE_SPACE_CHANNELS = [2, 3, 5, 6, 8, 9, 11, 12]
 
 
-def unprocess(img, transf, mean, std):
+def denorm_img(img):
     img = (img.permute(0, 2, 3, 1) * 127.5 + 128).clamp(0, 255)
+    return img
+
+
+def unprocess(img, transf, mean, std):
     img = (transf(img.permute(0, 3, 1, 2)) / 255).sub_(mean).div_(std)
     return img
+
+
+def detect_landmarks(img, model, device, mean, std, out_size):
+    """
+    :param img: torch.Tensor after denorm_img function
+    :param model: mobilenet facial landmarks detector
+    :return:
+    """
+    # torch.Tensor -> numpy.ndarray
+    faces, _ = detect_faces(img)
+    # torch.Tensor -> torch.Tensor
+    cropped, orig_face_size, orig_bbox = crop_face(img, faces, out_size)
+
+    img = cropped.float().unsqueeze(0).permute(0, 3, 1, 2).to(device)
+    img_batch = (img / 255 - mean.unsqueeze(0)) / std.unsqueeze(0)
+    with torch.no_grad():
+        landmarks = model(img_batch)
+    landmarks = landmarks.view(landmarks.size(0), -1, 2)
+    landmarks = landmarks * orig_face_size + torch.tensor([orig_bbox[0], orig_bbox[1]], device=device).view(1, 1, 2)
+    return landmarks
 
 
 @click.command()
@@ -124,9 +150,7 @@ def find_direction(
     checkpoint = torch.load("mobilenet_224_model_best_gdconv_external.pth.tar", map_location=device)
     mobilenet = torch.nn.DataParallel(MobileNet_GDConv(136)).to(device)
     mobilenet.load_state_dict(checkpoint['state_dict'])
-    mobilenet.train()
-    for p in mobilenet.parameters():
-        p.requires_grad = True
+    mobilenet.eval()
     landmarks_loss = WingLoss(omega=5)
 
     id_loss = IDLoss("a").to(device).eval()
@@ -200,11 +224,9 @@ def find_direction(
             img_unprocessed = unprocess(img, transf, mean, std)
             original_img_unprocessed = unprocess(original_img, transf, mean, std)
 
-            landmarks1 = mobilenet(original_img_unprocessed)
-            landmarks1 = landmarks1.view(landmarks1.size(0), -1, 2)
-            landmarks2 = mobilenet(img_unprocessed)
-            landmarks2 = landmarks2.view(landmarks2.size(0), -1, 2)
-            face_landmarks_loss = landmarks_loss(landmarks1 * img_size, landmarks2 * img_size)
+            landmarks1 = detect_landmarks(denorm_img(original_img), mobilenet, device, mean, std, img_size)
+            landmarks2 = detect_landmarks(denorm_img(img), mobilenet, device, mean, std, img_size)
+            face_landmarks_loss = landmarks_loss(landmarks1, landmarks2)
             face_landmarks_loss *= landmarks_loss_coef
 
             if only_face_mask:
