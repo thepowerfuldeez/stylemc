@@ -71,7 +71,7 @@ def get_triangle_points(img, input_points, triangle_idx):
 
 def crop_face(img, faces, out_size):
     if isinstance(img, torch.Tensor):
-        width, height = img.size(0), img.size(1)
+        width, height = img.size(1), img.size(0)
     else:
         assert isinstance(img, Image.Image)
         width, height = img.size
@@ -100,7 +100,8 @@ def crop_face(img, faces, out_size):
 
     if isinstance(img, torch.Tensor):
         cropped = img[new_bbox[1]:new_bbox[3], new_bbox[0]:new_bbox[2]]
-        cropped_face = F.interpolate(cropped, size=out_size, mode='bilinear', align_corners=False)
+        cropped_face = F.interpolate(cropped.unsqueeze(0).permute(0, 3, 1, 2),
+                                     size=out_size, mode='bilinear', align_corners=False)[0].permute(1, 2, 0)
     else:
         cropped = np.array(img)[new_bbox[1]:new_bbox[3], new_bbox[0]:new_bbox[2]]
 

@@ -22,7 +22,7 @@ def detect_faces(image, min_face_size=20.0,
         bounding boxes and facial landmarks.
     """
     if isinstance(image, torch.Tensor):
-        image = Image.fromarray(image.detach().cpu().numpy())
+        image = Image.fromarray(image.detach().cpu().numpy().astype(np.uint8))
 
     # LOAD MODELS
     pnet = PNet()

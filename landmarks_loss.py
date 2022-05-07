@@ -15,12 +15,12 @@ class WingLoss(nn.Module):
 
     def forward(self, landmarks1, landmarks2):
         # except jaw line
-        # y = landmarks1[:, 17:].reshape(-1, 2)
-        # y_hat = landmarks2[:, 17:].reshape(-1, 2)
+        y = landmarks1[:, 17:].reshape(-1, 2)
+        y_hat = landmarks2[:, 17:].reshape(-1, 2)
 
         # only lips
-        y = landmarks1[:, 48:].reshape(-1, 2)
-        y_hat = landmarks2[:, 48:].reshape(-1, 2)
+        # y = landmarks1[:, 48:].reshape(-1, 2)
+        # y_hat = landmarks2[:, 48:].reshape(-1, 2)
 
         delta_y = (y - y_hat).abs()
         delta_y1 = delta_y[delta_y < self.omega]

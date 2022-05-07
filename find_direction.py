@@ -41,33 +41,39 @@ S_TRAINABLE_SPACE_CHANNELS = [2, 3, 5, 6, 8, 9, 11, 12]
 
 
 def denorm_img(img):
-    img = (img.permute(0, 2, 3, 1) * 127.5 + 128).clamp(0, 255)
+    img = (img.permute(1, 2, 0) * 127.5 + 128).clamp(0, 255)
     return img
 
 
 def unprocess(img, transf, mean, std):
+    img = (img.permute(0, 2, 3, 1) * 127.5 + 128).clamp(0, 255)
     img = (transf(img.permute(0, 3, 1, 2)) / 255).sub_(mean).div_(std)
     return img
 
 
 def detect_landmarks(img, model, device, mean, std, out_size):
     """
+    detect landmarks only for 1 image
+
     :param img: torch.Tensor after denorm_img function
     :param model: mobilenet facial landmarks detector
     :return:
     """
     # torch.Tensor -> numpy.ndarray
     faces, _ = detect_faces(img)
-    # torch.Tensor -> torch.Tensor
-    cropped, orig_face_size, orig_bbox = crop_face(img, faces, out_size)
+    if len(faces):
+        # torch.Tensor -> torch.Tensor
+        cropped, orig_face_size, orig_bbox = crop_face(img, faces, out_size)
 
-    img = cropped.float().unsqueeze(0).permute(0, 3, 1, 2).to(device)
-    img_batch = (img / 255 - mean.unsqueeze(0)) / std.unsqueeze(0)
-    with torch.no_grad():
-        landmarks = model(img_batch)
-    landmarks = landmarks.view(landmarks.size(0), -1, 2)
-    landmarks = landmarks * orig_face_size + torch.tensor([orig_bbox[0], orig_bbox[1]], device=device).view(1, 1, 2)
-    return landmarks
+        img = cropped.float().unsqueeze(0).permute(0, 3, 1, 2).to(device)
+        img_batch = (img / 255 - mean.unsqueeze(0)) / std.unsqueeze(0)
+        with torch.no_grad():
+            landmarks = model(img_batch)
+        landmarks = landmarks.view(landmarks.size(0), -1, 2)
+        landmarks = landmarks * orig_face_size + torch.tensor([orig_bbox[0], orig_bbox[1]], device=device).view(1, 1, 2)
+        return landmarks[0]
+    else:
+        return torch.zeros(68, 2, device=device)
 
 
 @click.command()
@@ -224,8 +230,18 @@ def find_direction(
             img_unprocessed = unprocess(img, transf, mean, std)
             original_img_unprocessed = unprocess(original_img, transf, mean, std)
 
-            landmarks1 = detect_landmarks(denorm_img(original_img), mobilenet, device, mean, std, img_size)
-            landmarks2 = detect_landmarks(denorm_img(img), mobilenet, device, mean, std, img_size)
+            landmarks1 = torch.stack([
+                detect_landmarks(denorm_img(original_img[i]), mobilenet, device, mean, std, img_size)
+                for i in range(original_img.shape[0])
+            ])
+            try:
+                landmarks2 = torch.stack([
+                    detect_landmarks(denorm_img(img[i]), mobilenet, device, mean, std, img_size)
+                    for i in range(img.shape[0])
+                ])
+            except:
+                print("could not detect landmarks")
+                landmarks2 = landmarks1
             face_landmarks_loss = landmarks_loss(landmarks1, landmarks2)
             face_landmarks_loss *= landmarks_loss_coef
 
