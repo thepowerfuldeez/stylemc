@@ -100,7 +100,7 @@ def find_direction(
     resolution_dict = {256: 6, 512: 7, 1024: 8}
 
     # trainable delta-s
-    styles_direction = torch.zeros(1, N_STYLE_CHANNELS, 512, device=device)
+    styles_direction = torch.zeros(batch_size, N_STYLE_CHANNELS, 512, device=device)
 
     mapper = Mapper().to(device)
 
