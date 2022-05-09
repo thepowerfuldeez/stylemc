@@ -88,8 +88,8 @@ def train_latent_mapper(
         G = legacy.load_network_pkl(f)['G_ema'].to(device)  # type: ignore
     os.makedirs(outdir, exist_ok=True)
 
-    for p in G.parameters():
-        p.requires_grad = True
+    # for p in G.parameters():
+    #     p.requires_grad = False
     mean, std = get_mean_std(device)
     img_size = 224
     transf = Compose([Resize(img_size, interpolation=Image.BICUBIC), CenterCrop(img_size)])
@@ -119,9 +119,9 @@ def train_latent_mapper(
         # WARMING UP STEP
         # print(i*batch_size, "processed", time.time()-t1)
 
-        styles = styles_array[i * batch_size:(i + 1) * batch_size].to(device)
+        styles_warmup = styles_array[i * batch_size:(i + 1) * batch_size].to(device)
 
-        _, img2 = generate_image(G, resolution_dict[resolution], styles, temp_shapes, noise_mode)
+        _, img2 = generate_image(G, resolution_dict[resolution], styles_warmup, temp_shapes, noise_mode)
         img2_cpu = img2.detach().cpu().numpy()
         temp_photos.append(img2_cpu)
 
@@ -134,6 +134,7 @@ def train_latent_mapper(
     t1 = time.time()
     for epoch in range(n_epochs):
         for _ in range(num_batches):
+            opt.zero_grad()
             cur_iteration += 1
 
             # # change learning rate param group of optimizer with cosine rule
@@ -146,11 +147,11 @@ def train_latent_mapper(
             styles = styles_array[i * batch_size:(i + 1) * batch_size].to(device)
 
             # new style vector
-            styles_input = styles[:, S_TRAINABLE_SPACE_CHANNELS, :].detach()  # batch x 8 x 512
+            styles_input = styles[:, S_TRAINABLE_SPACE_CHANNELS, :].detach().clone()  # batch x 8 x 512
             delta = mapper(styles_input)
             styles_direction[:, S_TRAINABLE_SPACE_CHANNELS] = 0.1 * delta
 
-            styles2 = styles + styles_direction
+            styles2 = styles.clone() + styles_direction
             _, img = generate_image(G, resolution_dict[resolution], styles2, temp_shapes, noise_mode)
 
             # use original image for identity loss
@@ -168,8 +169,7 @@ def train_latent_mapper(
             )
             # ------ COMPUTE LOSS --------
 
-            opt.zero_grad()
-            loss.backward(retain_graph=True)
+            loss.backward()
 
             grad_norm = 0
             for p in mapper.parameters():
