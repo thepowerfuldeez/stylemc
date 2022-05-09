@@ -62,7 +62,7 @@ class SubMapper(Module):
         x = x.view(bs * nc, x.size(-1))
         out = self.mapping(x)
         print("submapper out", out.shape)
-        out = out.view(bs, nc, out.size(-1))
+        out = out.reshape(bs, nc, out.size(-1))
         return out
 
 
