@@ -58,6 +58,7 @@ class SubMapper(Module):
         self.mapping = Sequential(*layers)
 
     def forward(self, x):
+        print("submapper", x.shape)
         return self.mapping(x)
 
 
