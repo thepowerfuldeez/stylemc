@@ -28,8 +28,8 @@ class EqualLinear(nn.Module):
 
     def forward(self, input):
         if self.activation:
-            out = F.linear(input, self.weight * self.scale)
-            out = self.leaky_relu(out, self.bias * self.lr_mul)
+            out = F.linear(input, self.weight * self.scale, self.bias * self.lr_mul)
+            out = self.leaky_relu(out)
 
         else:
             out = F.linear(
