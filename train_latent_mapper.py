@@ -99,9 +99,6 @@ def train_latent_mapper(
     temp_shapes = get_temp_shapes(G)
     resolution_dict = {256: 6, 512: 7, 1024: 8}
 
-    # trainable delta-s
-    styles_direction = torch.zeros(batch_size, N_STYLE_CHANNELS, 512, device=device)
-
     mapper = Mapper().to(device)
 
     checkpoint = torch.load("mobilenet_224_model_best_gdconv_external.pth.tar", map_location=device)
@@ -147,11 +144,11 @@ def train_latent_mapper(
             styles = styles_array[i * batch_size:(i + 1) * batch_size].to(device)
 
             # new style vector
-            styles_input = styles[:, S_TRAINABLE_SPACE_CHANNELS, :].detach().clone()  # batch x 8 x 512
+            styles_input = styles[:, S_TRAINABLE_SPACE_CHANNELS, :]  # batch x 8 x 512
             delta = mapper(styles_input)
-            styles_direction[:, S_TRAINABLE_SPACE_CHANNELS] = 0.1 * delta
+            styles2 = styles.clone()
+            styles2[:, S_TRAINABLE_SPACE_CHANNELS] += 0.1 * delta
 
-            styles2 = styles.clone() + styles_direction
             _, img = generate_image(G, resolution_dict[resolution], styles2, temp_shapes, noise_mode)
 
             # use original image for identity loss
@@ -169,7 +166,7 @@ def train_latent_mapper(
             )
             # ------ COMPUTE LOSS --------
 
-            loss.backward(retain_graph=True)
+            loss.backward()
 
             grad_norm = 0
             for p in mapper.parameters():
