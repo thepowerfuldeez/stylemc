@@ -68,8 +68,8 @@ class SubMapper(Module):
 class Mapper(Module):
     def __init__(self):
         super(Mapper, self).__init__()
-        self.course_mapping = SubMapper()
-        self.medium_mapping = SubMapper()
+        self.course_mapping = SubMapperModulation()
+        self.medium_mapping = SubMapperModulation()
 
     def forward(self, x):
         """
@@ -81,8 +81,8 @@ class Mapper(Module):
         x_coarse = x[:, :4, :]
         x_medium = x[:, 4:8, :]
 
-        x_coarse = self.course_mapping(x_coarse)  # , clip_embedding[:, :4, :])
-        x_medium = self.medium_mapping(x_medium)  # , clip_embedding[:, 4:8, :])
+        x_coarse = self.course_mapping(x_coarse, None)  # , clip_embedding[:, :4, :])
+        x_medium = self.medium_mapping(x_medium, None)  # , clip_embedding[:, 4:8, :])
 
         out = torch.cat([x_coarse, x_medium], dim=1)
         return out
