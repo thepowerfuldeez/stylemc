@@ -56,14 +56,13 @@ S_TRAINABLE_SPACE_CHANNELS = [2, 3, 5, 6, 8, 9, 11, 12]
 @click.option('--clip_loss_type', help='Type of CLIP loss (nada or default)', type=str, required=True,
               default='default')
 @click.option('--resolution', help='Resolution of output images', type=int, required=True, default=512)
-@click.option('--batch_size', help='Batch Size', type=int, required=True, default=4)
-@click.option('--learning_rate', help='Learning rate for s estimation, defaults to 2.5',
-              type=float, required=True, default=0.005)
-@click.option('--n_epochs', help='number of epochs', type=int, required=True, default=4)
-@click.option('--identity_loss_coef', help='Identity loss coef', type=float, required=True, default=0.6)
-@click.option('--landmarks_loss_coef', help='Landmarks loss coef', type=float, required=True, default=25.0)
-@click.option('--l2_reg_coef', help='Landmarks loss coef', type=float, required=True, default=0.1)
-@click.option('--clip_loss_coef', help='CLIP loss coef', type=float, required=True, default=1.0)
+@click.option('--batch_size', help='Batch Size', type=int, required=True, default=2)
+@click.option('--learning_rate', help='Learning rate', type=float, required=True, default=0.0005)
+@click.option('--n_epochs', help='number of epochs', type=int, required=True, default=10)
+@click.option('--identity_loss_coef', help='Identity loss coef', type=float, required=True, default=0.3)
+@click.option('--landmarks_loss_coef', help='Landmarks loss coef', type=float, required=True, default=0.0)
+@click.option('--l2_reg_coef', help='l2 reg loss coef', type=float, required=True, default=0.8)
+@click.option('--clip_loss_coef', help='CLIP loss coef', type=float, required=True, default=2.0)
 def find_direction(
         ctx: click.Context,
         network_pkl: str,
@@ -103,9 +102,7 @@ def find_direction(
     # trainable delta-s
     styles_direction = torch.zeros(1, N_STYLE_CHANNELS, 512, device=device)
 
-    mapper = ... # 4096
-    # trainable_delta_s = styles_direction.index_select(1, torch.tensor(S_TRAINABLE_SPACE_CHANNELS, device=device))
-    # trainable_delta_s.requires_grad = True
+    mapper = Mapper().to(device)
 
     checkpoint = torch.load("mobilenet_224_model_best_gdconv_external.pth.tar", map_location=device)
     mobilenet = torch.nn.DataParallel(MobileNet_GDConv(136)).to(device)
@@ -128,7 +125,7 @@ def find_direction(
         img2_cpu = img2.detach().cpu().numpy()
         temp_photos.append(img2_cpu)
 
-    opt = Adam(mapper.parameters(), lr=learning_rate)
+    opt = Adam(mapper.parameters(), lr=learning_rate, betas=(0.9, 0.999))
     num_batches = math.ceil(n_items / batch_size)
     total_num_iterations = num_batches * n_epochs
     cur_iteration = 0
@@ -172,7 +169,7 @@ def find_direction(
             # ------ COMPUTE LOSS --------
 
             opt.zero_grad()
-            loss.backward(retain_graph=True)
+            loss.backward()
 
             grad_norm = 0
             for p in mapper.parameters():
