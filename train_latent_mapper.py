@@ -136,11 +136,11 @@ def find_direction(
         for _ in range(num_batches):
             cur_iteration += 1
 
-            # change learning rate param group of optimizer with cosine rule
-            new_learning_rate = np.cos(
-                np.pi * cur_iteration / total_num_iterations) * learning_rate * 0.5 + learning_rate * 0.5
-            for param_group in opt.param_groups:
-                param_group['lr'] = new_learning_rate
+            # # change learning rate param group of optimizer with cosine rule
+            # new_learning_rate = np.cos(
+            #     np.pi * cur_iteration / total_num_iterations) * learning_rate * 0.5 + learning_rate * 0.5
+            # for param_group in opt.param_groups:
+            #     param_group['lr'] = new_learning_rate
 
             i = np.random.randint(0, math.ceil(n_items / batch_size))
             styles = styles_array[i * batch_size:(i + 1) * batch_size].to(device)
