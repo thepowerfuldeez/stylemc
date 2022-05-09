@@ -27,6 +27,7 @@ class EqualLinear(nn.Module):
         self.leaky_relu = LeakyReLU()
 
     def forward(self, input):
+        print("linear", input.shape)
         if self.activation:
             out = F.linear(input, self.weight * self.scale)
             out = self.leaky_relu(out, self.bias * self.lr_mul)
@@ -119,7 +120,6 @@ class Mapper(Module):
 
         x_coarse = x[:, :4, :]
         x_medium = x[:, 4:8, :]
-        print(x_coarse.shape, x_medium.shape)
 
         x_coarse = self.course_mapping(x_coarse)  # , clip_embedding[:, :4, :])
         x_medium = self.medium_mapping(x_medium)  # , clip_embedding[:, 4:8, :])
