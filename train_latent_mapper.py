@@ -169,9 +169,7 @@ def train_latent_mapper(
             )
             # ------ COMPUTE LOSS --------
 
-            if cur_iteration == 1:
-                loss.backward(retain_graph=True)
-            loss.backward()
+            loss.backward(retain_graph=True)
 
             grad_norm = 0
             for p in mapper.parameters():
