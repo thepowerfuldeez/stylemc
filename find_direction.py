@@ -83,22 +83,25 @@ def init_clip_loss(clip_loss_type, clip_type, device, text_prompt, negative_text
             clip_loss2 = CLIPLossNADA(device, clip_model="ViT-B/16")
         else:
             clip_loss1 = CLIPLossNADA(device, clip_model="ViT-B/32")
+            clip_loss2 = None
     elif clip_loss_type == "nada_global":
         if clip_type == "double":
             clip_loss1 = CLIPLossNADA(device, clip_model="ViT-B/32", lambda_direction=0.0, lambda_global=1.0)
             clip_loss2 = CLIPLossNADA(device, clip_model="ViT-B/16", lambda_direction=0.0, lambda_global=1.0)
         else:
             clip_loss1 = CLIPLossNADA(device, clip_model="ViT-B/32", lambda_direction=0.0, lambda_global=1.0)
+            clip_loss2 = None
     else:
         if clip_type == "double":
             clip_loss1 = CLIPLoss(device, text_prompt, negative_text_prompt, clip_type="small")
             clip_loss2 = CLIPLoss(device, text_prompt, negative_text_prompt, clip_type="large")
         else:
             clip_loss1 = CLIPLoss(device, text_prompt, negative_text_prompt, clip_type=clip_type)
+            clip_loss2 = None
     return clip_loss1, clip_loss2
 
 
-def compute_landmarks_loss(original_img_batch, gen_img_batch,
+def compute_landmarks_loss(gen_img_batch, original_img_batch,
                            landmarks_loss, landmarks_loss_coef, model, device, mean, std, img_size=224):
     if landmarks_loss_coef != 0:
         landmarks1 = torch.stack([
@@ -114,13 +117,12 @@ def compute_landmarks_loss(original_img_batch, gen_img_batch,
             print("could not detect landmarks")
             landmarks2 = landmarks1
         face_landmarks_loss = landmarks_loss(landmarks1, landmarks2)
-        face_landmarks_loss *= landmarks_loss_coef
     else:
         face_landmarks_loss = 0
-    return face_landmarks_loss
+    return face_landmarks_loss * landmarks_loss_coef
 
 
-def compute_clip_loss(original_img_batch, gen_img_batch, clip_loss_type, clip_type, clip_loss_coef,
+def compute_clip_loss(gen_img_batch, original_img_batch, clip_loss_type, clip_type, clip_loss_coef,
                       clip_loss1, clip_loss2, transf, mean, std, device, text_prompt, negative_text_prompt):
     # if only_face_mask:
     #     mask = torch.stack(masks[i * batch_size:(i + 1) * batch_size]).unsqueeze(1).to(device)
@@ -134,6 +136,7 @@ def compute_clip_loss(original_img_batch, gen_img_batch, clip_loss_type, clip_ty
         if clip_type == "double":
             clip1_alignment_loss = clip_loss1(original_img_batch, negative_text_prompt, gen_img_batch, text_prompt)
             clip2_alignment_loss = clip_loss2(original_img_batch, negative_text_prompt, gen_img_batch, text_prompt)
+
             # when using double clip + only mask, no need to reduce second weight
             if 0: #only_face_mask:
                 clip_alignment_loss = clip1_alignment_loss + clip2_alignment_loss
@@ -156,8 +159,7 @@ def compute_clip_loss(original_img_batch, gen_img_batch, clip_loss_type, clip_ty
                 clip_alignment_loss = clip1_alignment_loss + clip2_alignment_loss * 0.5
         else:
             clip_alignment_loss = clip_loss1(original_img_unprocessed, img_unprocessed)
-    clip_alignment_loss *= clip_loss_coef
-    return clip_alignment_loss
+    return clip_alignment_loss * clip_loss_coef
 
 
 @click.command()
@@ -240,7 +242,7 @@ def find_direction(
 
     landmarks_loss = WingLoss(omega=5)
     id_loss = IDLoss("a").to(device).eval()
-    clip_loss1, clip_loss2 = init_clip_loss(clip_loss_type, clip_type, device, text_prompt, negative_text_prompt)
+    clip_loss1_func, clip_loss2_func = init_clip_loss(clip_loss_type, clip_type, device, text_prompt, negative_text_prompt)
 
     # if only_face_mask:
     #     idx = np.load(s_input)['idx']
@@ -256,7 +258,7 @@ def find_direction(
 
         styles = styles_array[i * batch_size:(i + 1) * batch_size].to(device)
 
-        x2, img2 = generate_image(G, resolution_dict[resolution], styles, temp_shapes, noise_mode)
+        _, img2 = generate_image(G, resolution_dict[resolution], styles, temp_shapes, noise_mode)
         img2_cpu = img2.detach().cpu().numpy()
         temp_photos.append(img2_cpu)
 
@@ -292,16 +294,16 @@ def find_direction(
             identity_loss, _ = id_loss(img, original_img)
             identity_loss *= identity_loss_coef
 
-            face_landmarks_loss = compute_landmarks_loss(original_img, img, landmarks_loss, landmarks_loss_coef,
+            face_landmarks_loss = compute_landmarks_loss(img, original_img, landmarks_loss, landmarks_loss_coef,
                                                          mobilenet, device, mean, std, img_size)
 
             clip_alignment_loss = compute_clip_loss(
-                original_img, img, clip_loss_type, clip_type, clip_loss_coef, clip_loss1, clip_loss2, transf,
+                img, original_img, clip_loss_type, clip_type, clip_loss_coef, clip_loss1_func, clip_loss2_func, transf,
                 mean, std, device, text_prompt, negative_text_prompt
             )
 
             manipulation_direction_loss = trainable_delta_s.norm(2, dim=-1).mean()
-            manipulation_direction_loss *= l2_reg_coef
+            manipulation_direction_loss = manipulation_direction_loss * l2_reg_coef
 
             loss = identity_loss + clip_alignment_loss + manipulation_direction_loss + face_landmarks_loss
 
