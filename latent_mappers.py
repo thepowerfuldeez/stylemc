@@ -59,7 +59,7 @@ class SubMapper(Module):
 
     def forward(self, x):
         bs, nc = x.size(0), x.size(1)
-        x = x.view(bs * nc, x.size(-1))
+        x = x.reshape(bs * nc, x.size(-1))
         out = self.mapping(x)
         print("submapper out", out.shape)
         out = out.reshape(bs, nc, out.size(-1))
