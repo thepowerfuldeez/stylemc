@@ -4,7 +4,13 @@ from torch import nn
 from torch.nn import Module
 from torch.nn import Linear, LayerNorm, LeakyReLU, Sequential
 
-from encoder4editing.models.stylegan2.model import EqualLinear, PixelNorm
+
+class PixelNorm(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, input):
+        return input * torch.rsqrt(torch.mean(input ** 2, dim=1, keepdim=True) + 1e-8)
 
 
 class ModulationModule(Module):
@@ -58,8 +64,8 @@ class Mapper(Module):
         x_coarse = x[:, :4, :]
         x_medium = x[:, 4:8, :]
 
-        x_coarse = self.course_mapping(x_coarse)#, clip_embedding[:, :4, :])
-        x_medium = self.medium_mapping(x_medium)#, clip_embedding[:, 4:8, :])
+        x_coarse = self.course_mapping(x_coarse)  # , clip_embedding[:, :4, :])
+        x_medium = self.medium_mapping(x_medium)  # , clip_embedding[:, 4:8, :])
 
         out = torch.cat([x_coarse, x_medium], dim=1)
         return out
