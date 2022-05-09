@@ -63,7 +63,7 @@ S_TRAINABLE_SPACE_CHANNELS = [2, 3, 5, 6, 8, 9, 11, 12]
 @click.option('--landmarks_loss_coef', help='Landmarks loss coef', type=float, required=True, default=0.0)
 @click.option('--l2_reg_coef', help='l2 reg loss coef', type=float, required=True, default=0.8)
 @click.option('--clip_loss_coef', help='CLIP loss coef', type=float, required=True, default=2.0)
-def find_direction(
+def train_latent_mapper(
         ctx: click.Context,
         network_pkl: str,
         noise_mode: str,
@@ -145,11 +145,11 @@ def find_direction(
             i = np.random.randint(0, math.ceil(n_items / batch_size))
             styles = styles_array[i * batch_size:(i + 1) * batch_size].to(device)
 
-            styles_input = styles[:, S_TRAINABLE_SPACE_CHANNELS, :]  # batch x 8 x 512
-            delta = mapper(styles_input)
-
             # new style vector
+            styles_input = styles[:, S_TRAINABLE_SPACE_CHANNELS, :].detach()  # batch x 8 x 512
+            delta = mapper(styles_input)
             styles_direction[:, S_TRAINABLE_SPACE_CHANNELS] = 0.1 * delta
+
             styles2 = styles + styles_direction
             _, img = generate_image(G, resolution_dict[resolution], styles2, temp_shapes, noise_mode)
 
@@ -191,4 +191,4 @@ def find_direction(
 
 
 if __name__ == "__main__":
-    find_direction()
+    train_latent_mapper()
