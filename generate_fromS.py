@@ -20,6 +20,8 @@ from PIL import Image
 import legacy
 import dnnlib
 from utils import get_temp_shapes, generate_image, block_forward, num_range
+from find_direction import S_TRAINABLE_SPACE_CHANNELS
+from latent_mappers import Mapper
 
 
 @click.command()
@@ -30,6 +32,7 @@ from utils import get_temp_shapes, generate_image, block_forward, num_range
               show_default=True)
 @click.option('--projected-w', help='Projection result file', type=str, metavar='FILE')
 @click.option('--s_input', help='Projection result file', type=str, metavar='FILE')
+@click.option('--use_mapper', help='use mapper or global direction', type=int, default=0)
 @click.option('--n', help='generate first n results', type=int, metavar='FILE', default=99999)
 @click.option('--outdir', help='Where to save the output images', type=str, required=True, metavar='DIR')
 @click.option('--text_prompt', help='Text', type=str, required=True)
@@ -41,6 +44,7 @@ def generate_images(
         outdir: str,
         projected_w: Optional[str],
         s_input: Optional[str],
+        use_mapper: int,
         n: int,
         text_prompt: str,
         change_power: float,
@@ -79,8 +83,14 @@ def generate_images(
         styles = torch.tensor(styles, device=device)
         print(f"loaded {len(styles)} styles")
 
-        styles_direction = np.load(f'{outdir}/direction_' + text_prompt.replace(" ", "_") + '.npz')['s']
-        styles_direction = torch.tensor(styles_direction, device=device)
+        if use_mapper:
+            mapper_sd = torch.load(f'{outdir}/mapper_{text_prompt.replace(" ", "_")}.pth')
+            mapper = Mapper()
+            mapper.load_state_dict(mapper_sd)
+            mapper.to(device)
+        else:
+            global_styles_direction = np.load(f'{outdir}/direction_{text_prompt.replace(" ", "_")}.npz')['s']
+            global_styles_direction = torch.tensor(global_styles_direction, device=device)
 
     if not os.path.isdir(outdir):
         os.makedirs(outdir)
@@ -91,6 +101,12 @@ def generate_images(
             grad_changes = [0, change_power]
 
             for grad_change in grad_changes:
+                if use_mapper:
+                    styles_direction = torch.zeros(1, 18, 512, device=device)
+                    with torch.no_grad():
+                        styles_direction[:, S_TRAINABLE_SPACE_CHANNELS] = mapper(styles[[i], S_TRAINABLE_SPACE_CHANNELS])
+                else:
+                    styles_direction = global_styles_direction
                 styles += styles_direction * grad_change
 
                 x, img = generate_image(G, 100, styles[[i]], temp_shapes, noise_mode)
