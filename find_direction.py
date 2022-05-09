@@ -241,7 +241,6 @@ def find_direction(
     clip_loss1_func, clip_loss2_func = init_clip_loss(clip_loss_type, clip_type, device, text_prompt,
                                                       negative_text_prompt)
     temp_photos = []
-    grads = []
     for i in range(math.ceil(n_items / batch_size)):
         # WARMING UP STEP
         # print(i*batch_size, "processed", time.time()-t1)
@@ -312,9 +311,6 @@ def find_direction(
     styles_direction = styles_direction.detach()
     output_direction_filepath = f'{outdir}/direction_{text_prompt.replace(" ", "_")}.npz'
     np.savez(output_direction_filepath, s=styles_direction.cpu().numpy())
-
-    output_grads_filepath = f'{outdir}/grads_{text_prompt.replace(" ", "_")}.npz'
-    np.savez(output_grads_filepath, grads=torch.stack(grads).cpu().numpy())
 
     print("time passed:", time.time() - t1)
 
