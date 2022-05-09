@@ -83,4 +83,5 @@ class Mapper(Module):
         x_medium = self.medium_mapping(x_medium)  # , clip_embedding[:, 4:8, :])
 
         out = torch.cat([x_coarse, x_medium], dim=1)
+        print("mapper out:", out.shape)
         return out
