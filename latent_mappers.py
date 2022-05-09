@@ -30,6 +30,8 @@ class ModulationModule(Module):
             gamma = self.gamma_function(embedding.float())
             beta = self.beta_function(embedding.float())
             out = x * (1 + gamma) + beta
+        else:
+            out = x
         out = self.leakyrelu(out)
         return out
 
