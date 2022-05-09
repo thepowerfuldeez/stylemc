@@ -112,7 +112,6 @@ def train_latent_mapper(
                                                       negative_text_prompt)
 
     temp_photos = []
-    embeddings = []
     for i in range(math.ceil(n_items / batch_size)):
         # WARMING UP STEP
         # print(i*batch_size, "processed", time.time()-t1)
@@ -122,7 +121,6 @@ def train_latent_mapper(
         _, img2 = generate_image(G, resolution_dict[resolution], styles_warmup, temp_shapes, noise_mode)
         img2_cpu = img2.detach().cpu().numpy()
         temp_photos.append(img2_cpu)
-        embeddings.append(clip_loss1_func.compute_image_embedding(unprocess(img2, transf, mean, std)).cpu())
 
     opt = Adam(mapper.parameters(), lr=learning_rate, betas=(0.9, 0.999))
     num_batches = math.ceil(n_items / batch_size)
@@ -144,11 +142,10 @@ def train_latent_mapper(
 
             i = np.random.randint(0, math.ceil(n_items / batch_size))
             styles = styles_array[i * batch_size:(i + 1) * batch_size].to(device)
-            embs = embeddings[i].to(device)
 
             # new style vector
             styles_input = styles[:, S_TRAINABLE_SPACE_CHANNELS, :]  # batch x 8 x 512
-            delta = mapper(styles_input, embs)
+            delta = mapper(styles_input)
             styles2 = styles.clone()
             styles2[:, S_TRAINABLE_SPACE_CHANNELS] += 0.1 * delta
 
@@ -178,11 +175,12 @@ def train_latent_mapper(
                     grad_norm += g.data.norm()
             opt.step()
 
-            print(f"Iteration {cur_iteration}, img size: {img.size(-1)}, gradient norm: {grad_norm:.4f}")
-            print(f"Total loss: {loss.item():.4f}, clip loss: {loss_dict['clip_loss']:.4f}, "
-                  f"identity loss: {loss_dict['identity_loss']:.4f}, "
-                  f"landmarks loss: {loss_dict['landmarks_loss']:.4f}, "
-                  f"l2 loss: {loss_dict['l2_loss']:.4f}")
+            if cur_iteration % 10 == 0:
+                print(f"Iteration {cur_iteration}, img size: {img.size(-1)}, gradient norm: {grad_norm:.4f}")
+                print(f"Total loss: {loss.item():.4f}, clip loss: {loss_dict['clip_loss']:.4f}, "
+                      f"identity loss: {loss_dict['identity_loss']:.4f}, "
+                      f"landmarks loss: {loss_dict['landmarks_loss']:.4f}, "
+                      f"l2 loss: {loss_dict['l2_loss']:.4f}")
 
     output_mapper_filepath = f'{outdir}/mapper_{text_prompt.replace(" ", "_")}.pth'
     torch.save(mapper.state_dict(), output_mapper_filepath)
