@@ -58,8 +58,10 @@ class SubMapper(Module):
         self.mapping = Sequential(*layers)
 
     def forward(self, x):
+        x = x.unsqueeze(2) # batch x 4 x 1 x 512
         out = self.mapping(x)
-        print("submapper out:", out.shape)
+        print("submapper out", out.shape)
+        out = out.squeeze(2)
         return out
 
 
@@ -83,5 +85,4 @@ class Mapper(Module):
         x_medium = self.medium_mapping(x_medium)  # , clip_embedding[:, 4:8, :])
 
         out = torch.cat([x_coarse, x_medium], dim=1)
-        print("mapper out:", out.shape)
         return out
