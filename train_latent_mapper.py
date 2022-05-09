@@ -169,7 +169,7 @@ def find_direction(
             # ------ COMPUTE LOSS --------
 
             opt.zero_grad()
-            loss.backward()
+            loss.backward(retain_graph=True)
 
             grad_norm = 0
             for p in mapper.parameters():
