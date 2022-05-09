@@ -58,10 +58,10 @@ class SubMapper(Module):
         self.mapping = Sequential(*layers)
 
     def forward(self, x):
-        x = x.unsqueeze(2) # batch x 4 x 1 x 512
+        x = x.unsqueeze(1) # batch x 4 x 1 x 512
         out = self.mapping(x)
         print("submapper out", out.shape)
-        out = out.squeeze(2)
+        out = out.squeeze(1)
         return out
 
 
