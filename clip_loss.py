@@ -17,6 +17,10 @@ class CLIPLoss(nn.Module):
         self.text_features = self.tgt_text_features - self.neg_text_features
         self.text_features = self.text_features / self.text_features.norm(dim=1, keepdim=True)
 
+    def compute_image_embedding(self, image):
+        image_features = self.model.encode_image(image)
+        return image_features / image_features.norm(dim=1, keepdim=True)
+
     def forward(self, src_image, tgt_image):
         src_image_features = self.model.encode_image(src_image)
         tgt_image_features = self.model.encode_image(tgt_image)

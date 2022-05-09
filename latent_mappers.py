@@ -71,7 +71,7 @@ class Mapper(Module):
         self.course_mapping = SubMapperModulation()
         self.medium_mapping = SubMapperModulation()
 
-    def forward(self, x):
+    def forward(self, x, embedding=None):
         """
         :param x: (batch_size, 8, 512) – style space embedding
         :param clip_embedding:
@@ -81,8 +81,13 @@ class Mapper(Module):
         x_coarse = x[:, :4, :]
         x_medium = x[:, 4:8, :]
 
-        x_coarse = self.course_mapping(x_coarse, None)  # , clip_embedding[:, :4, :])
-        x_medium = self.medium_mapping(x_medium, None)  # , clip_embedding[:, 4:8, :])
+        if embedding is not None:
+            embedding = embedding.unsqueeze(1).repeat(1, 8, 1)
+        else:
+            embedding = torch.ones(x.size(0), 8, 512, device=x.device)
+
+        x_coarse = self.course_mapping(x_coarse, embedding[:, :4, :])
+        x_medium = self.medium_mapping(x_medium, embedding[:, 4:8, :])
 
         out = torch.cat([x_coarse, x_medium], dim=1)
         return out

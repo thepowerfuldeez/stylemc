@@ -30,7 +30,7 @@ from landmarks_loss import LandmarksLoss, WingLoss
 from mobilenet_facial import MobileNet_GDConv
 from utils import read_image_mask, get_mean_std, generate_image, get_temp_shapes
 
-from find_direction import init_clip_loss, compute_loss
+from find_direction import init_clip_loss, compute_loss, unprocess
 from latent_mappers import Mapper
 
 # 18 real, 8 for torgb layers
@@ -112,6 +112,7 @@ def train_latent_mapper(
                                                       negative_text_prompt)
 
     temp_photos = []
+    embeddings = []
     for i in range(math.ceil(n_items / batch_size)):
         # WARMING UP STEP
         # print(i*batch_size, "processed", time.time()-t1)
@@ -121,6 +122,7 @@ def train_latent_mapper(
         _, img2 = generate_image(G, resolution_dict[resolution], styles_warmup, temp_shapes, noise_mode)
         img2_cpu = img2.detach().cpu().numpy()
         temp_photos.append(img2_cpu)
+        embeddings.append(clip_loss1_func.compute_image_embedding(unprocess(img2, transf, mean, std)))
 
     opt = Adam(mapper.parameters(), lr=learning_rate, betas=(0.9, 0.999))
     num_batches = math.ceil(n_items / batch_size)
@@ -142,10 +144,11 @@ def train_latent_mapper(
 
             i = np.random.randint(0, math.ceil(n_items / batch_size))
             styles = styles_array[i * batch_size:(i + 1) * batch_size].to(device)
+            embs = torch.stack(embeddings[i * batch_size:(i + 1) * batch_size]).to(device)
 
             # new style vector
             styles_input = styles[:, S_TRAINABLE_SPACE_CHANNELS, :]  # batch x 8 x 512
-            delta = mapper(styles_input)
+            delta = mapper(styles_input, embs)
             styles2 = styles.clone()
             styles2[:, S_TRAINABLE_SPACE_CHANNELS] += 0.1 * delta
 
