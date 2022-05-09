@@ -122,7 +122,7 @@ def train_latent_mapper(
         _, img2 = generate_image(G, resolution_dict[resolution], styles_warmup, temp_shapes, noise_mode)
         img2_cpu = img2.detach().cpu().numpy()
         temp_photos.append(img2_cpu)
-        embeddings.append(clip_loss1_func.compute_image_embedding(unprocess(img2, transf, mean, std)))
+        embeddings.append(clip_loss1_func.compute_image_embedding(unprocess(img2, transf, mean, std)).cpu())
 
     opt = Adam(mapper.parameters(), lr=learning_rate, betas=(0.9, 0.999))
     num_batches = math.ceil(n_items / batch_size)
@@ -144,7 +144,7 @@ def train_latent_mapper(
 
             i = np.random.randint(0, math.ceil(n_items / batch_size))
             styles = styles_array[i * batch_size:(i + 1) * batch_size].to(device)
-            embs = torch.stack(embeddings[i * batch_size:(i + 1) * batch_size]).to(device)
+            embs = embeddings[i].to(device)
 
             # new style vector
             styles_input = styles[:, S_TRAINABLE_SPACE_CHANNELS, :]  # batch x 8 x 512
