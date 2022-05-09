@@ -20,7 +20,7 @@ from PIL import Image
 import legacy
 import dnnlib
 from utils import get_temp_shapes, generate_image, block_forward, num_range
-from find_direction import S_TRAINABLE_SPACE_CHANNELS
+from find_direction import S_TRAINABLE_SPACE_CHANNELS, N_STYLE_CHANNELS
 from latent_mappers import Mapper
 
 
@@ -86,6 +86,7 @@ def generate_images(
         if use_mapper:
             mapper_sd = torch.load(f'{outdir}/mapper_{text_prompt.replace(" ", "_")}.pth')
             mapper = Mapper()
+            mapper.eval()
             mapper.load_state_dict(mapper_sd)
             mapper.to(device)
         else:
@@ -102,9 +103,10 @@ def generate_images(
 
             for grad_change in grad_changes:
                 if use_mapper:
-                    styles_direction = torch.zeros(1, 18, 512, device=device)
+                    styles_direction = torch.zeros(1, N_STYLE_CHANNELS, 512, device=device)
                     with torch.no_grad():
-                        styles_direction[:, S_TRAINABLE_SPACE_CHANNELS] = mapper(styles[[i], S_TRAINABLE_SPACE_CHANNELS])
+                        delta = mapper(styles[i, S_TRAINABLE_SPACE_CHANNELS].unsqueeze(0))
+                        styles_direction[:, S_TRAINABLE_SPACE_CHANNELS] = delta
                 else:
                     styles_direction = global_styles_direction
                 styles += styles_direction * grad_change
