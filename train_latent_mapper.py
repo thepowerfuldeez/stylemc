@@ -173,11 +173,12 @@ def find_direction(
 
             grad_norm = 0
             for p in mapper.parameters():
-                grad_norm += p.grad.data.norm()
+                g = p.grad
+                if g is not None:
+                    grad_norm += g.data.norm()
             opt.step()
 
-            print(f"Iteration {cur_iteration}, img size: {img.size(-1)}, gradient norm: {grad_norm:.4f}, "
-                  f"lr: {new_learning_rate:.4f}")
+            print(f"Iteration {cur_iteration}, img size: {img.size(-1)}, gradient norm: {grad_norm:.4f}")
             print(f"Total loss: {loss.item():.4f}, clip loss: {loss_dict['clip_loss']:.4f}, "
                   f"identity loss: {loss_dict['identity_loss']:.4f}, "
                   f"landmarks loss: {loss_dict['landmarks_loss']:.4f}, "
