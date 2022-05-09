@@ -34,134 +34,12 @@ from mobilenet_facial import MobileNet_GDConv
 from utils import read_image_mask, get_mean_std, generate_image, get_temp_shapes
 from warp_images import crop_face
 
+from find_direction import denorm_img, unprocess, detect_landmarks, init_clip_loss, compute_landmarks_loss, compute_clip_loss
+
 # 18 real, 8 for torgb layers
 N_STYLE_CHANNELS = 26
 S_NON_TRAINABLE_SPACE_CHANNELS = [0, 1, 4, 7, 10, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25]
 S_TRAINABLE_SPACE_CHANNELS = [2, 3, 5, 6, 8, 9, 11, 12]
-
-
-def denorm_img(img):
-    img = (img.permute(1, 2, 0) * 127.5 + 128).clamp(0, 255)
-    return img
-
-
-def unprocess(img, transf, mean, std):
-    img = (img.permute(0, 2, 3, 1) * 127.5 + 128).clamp(0, 255)
-    img = (transf(img.permute(0, 3, 1, 2)) / 255).sub_(mean).div_(std)
-    return img
-
-
-def detect_landmarks(img, model, device, mean, std, out_size=224):
-    """
-    detect landmarks only for 1 image
-
-    :param img: torch.Tensor after denorm_img function or List[torch.Tensor]
-    :param model: mobilenet facial landmarks detector
-    :return:
-    """
-    if isinstance(img, list):
-        imgs = img
-    else:
-        imgs = [img]
-
-    images_cropped = []
-    orig_face_metas = []
-    for img_ in imgs:
-
-        # torch.Tensor -> numpy.ndarray
-        faces, _ = detect_faces(img_, device=device)
-        if len(faces):
-            # torch.Tensor -> torch.Tensor
-            cropped, orig_face_size, orig_bbox = crop_face(img_, faces, out_size)
-
-            cropped_img = cropped.float().unsqueeze(0).permute(0, 3, 1, 2).to(device)
-            cropped_img = (cropped_img / 255 - mean.unsqueeze(0)) / std.unsqueeze(0)
-            images_cropped.append(cropped_img)
-            orig_face_metas.append((orig_face_size, orig_bbox))
-        else:
-            images_cropped.append(None)
-            orig_face_metas.append(None)
-
-    if any(x is None for x in images_cropped):
-        return None
-
-    img_batch = torch.cat(images_cropped, dim=0)
-    with torch.no_grad():
-        landmarks = model(img_batch)
-    landmarks = landmarks.view(landmarks.size(0), -1, 2)
-
-    for i, (orig_face_size, orig_bbox) in enumerate(orig_face_metas):
-        landmarks[i] = landmarks[i] * orig_face_size + torch.tensor([orig_bbox[0], orig_bbox[1]],
-                                                                    device=device).view(1, 2)
-    return landmarks
-
-
-def init_clip_loss(clip_loss_type, clip_type, device, text_prompt, negative_text_prompt):
-    if clip_loss_type == "nada":
-        if clip_type == "double":
-            clip_loss1 = CLIPLossNADA(device, clip_model="ViT-B/32")
-            clip_loss2 = CLIPLossNADA(device, clip_model="ViT-B/16")
-        else:
-            clip_loss1 = CLIPLossNADA(device, clip_model="ViT-B/32")
-            clip_loss2 = None
-    elif clip_loss_type == "nada_global":
-        if clip_type == "double":
-            clip_loss1 = CLIPLossNADA(device, clip_model="ViT-B/32", lambda_direction=0.0, lambda_global=1.0)
-            clip_loss2 = CLIPLossNADA(device, clip_model="ViT-B/16", lambda_direction=0.0, lambda_global=1.0)
-        else:
-            clip_loss1 = CLIPLossNADA(device, clip_model="ViT-B/32", lambda_direction=0.0, lambda_global=1.0)
-            clip_loss2 = None
-    else:
-        if clip_type == "double":
-            clip_loss1 = CLIPLoss(device, text_prompt, negative_text_prompt, clip_type="small")
-            clip_loss2 = CLIPLoss(device, text_prompt, negative_text_prompt, clip_type="large")
-        else:
-            clip_loss1 = CLIPLoss(device, text_prompt, negative_text_prompt, clip_type=clip_type)
-            clip_loss2 = None
-    return clip_loss1, clip_loss2
-
-
-def compute_landmarks_loss(gen_img_batch, original_img_batch,
-                           landmarks_loss, landmarks_loss_coef, model, device, mean, std, img_size=224):
-    if landmarks_loss_coef != 0:
-        landmarks1 = detect_landmarks([denorm_img(original_img_batch[i]) for i in range(len(original_img_batch))],
-                                      model, device, mean, std, img_size)
-        try:
-            landmarks2 = detect_landmarks([denorm_img(gen_img_batch[i]) for i in range(len(gen_img_batch))],
-                                          model, device, mean, std, img_size)
-            assert landmarks2 is not None
-        except:
-            print("could not detect landmarks")
-            landmarks2 = landmarks1
-        face_landmarks_loss = landmarks_loss(landmarks1, landmarks2)
-    else:
-        face_landmarks_loss = 0
-    return landmarks_loss_coef * face_landmarks_loss
-
-
-def compute_clip_loss(gen_img_batch, original_img_batch, clip_loss_type, clip_type, clip_loss_coef,
-                      clip_loss1, clip_loss2, transf, mean, std, device, text_prompt, negative_text_prompt):
-
-    if clip_loss_type == "nada" or clip_loss_type == "nada_global":
-        if clip_type == "double":
-            clip1_alignment_loss = clip_loss1(original_img_batch, negative_text_prompt, gen_img_batch, text_prompt)
-            clip2_alignment_loss = clip_loss2(original_img_batch, negative_text_prompt, gen_img_batch, text_prompt)
-
-            clip_alignment_loss = clip1_alignment_loss + 0.5 * clip2_alignment_loss
-        else:
-            clip_alignment_loss = clip_loss1(original_img_batch, negative_text_prompt, gen_img_batch, text_prompt)
-    else:
-        img_unprocessed = unprocess(gen_img_batch, transf, mean, std)
-        original_img_unprocessed = unprocess(original_img_batch, transf, mean, std)
-
-        if clip_type == "double":
-            clip1_alignment_loss = clip_loss1(original_img_unprocessed, img_unprocessed)
-            clip2_alignment_loss = clip_loss2(original_img_unprocessed, img_unprocessed)
-
-            clip_alignment_loss = clip1_alignment_loss + 0.5 * clip2_alignment_loss
-        else:
-            clip_alignment_loss = clip_loss1(original_img_unprocessed, img_unprocessed)
-    return clip_loss_coef * clip_alignment_loss
 
 
 @click.command()
@@ -180,10 +58,14 @@ def compute_clip_loss(gen_img_batch, original_img_batch, clip_loss_type, clip_ty
 @click.option('--clip_type', help='Type of CLIP loss (small, large, double)', type=str, required=True, default='double')
 @click.option('--clip_loss_type', help='Type of CLIP loss (nada or default)', type=str, required=True,
               default='default')
-@click.option('--resolution', help='Resolution of output images', type=int, required=True, default=256)
+@click.option('--only_face_mask', help='Perform optimization only at face region (excluded bg, hair, ears etc)',
+              type=int, required=True, default=0)
+@click.option('--mask_min_value', help='Mask min value when using face masks', type=float, required=True, default=0.1)
+@click.option('--resolution', help='Resolution of output images', type=int, required=True, default=512)
 @click.option('--batch_size', help='Batch Size', type=int, required=True, default=4)
 @click.option('--learning_rate', help='Learning rate for s estimation, defaults to 2.5',
-              type=float, required=True, default=1.5)
+              type=float, required=True, default=0.005)
+@click.option('--clip_gradient_norm', help='clip gradient norm', type=float, required=True, default=0.1)
 @click.option('--n_epochs', help='number of epochs', type=int, required=True, default=4)
 @click.option('--identity_loss_coef', help='Identity loss coef', type=float, required=True, default=0.6)
 @click.option('--landmarks_loss_coef', help='Landmarks loss coef', type=float, required=True, default=25.0)
@@ -199,9 +81,12 @@ def find_direction(
         negative_text_prompt: Optional[str],
         clip_type: str,
         clip_loss_type: str,
+        only_face_mask: int,
+        mask_min_value: float,
         resolution: int,
         batch_size: int,
         learning_rate: float,
+        clip_gradient_norm: float,
         n_epochs: int,
         identity_loss_coef: float,
         landmarks_loss_coef: float,
@@ -227,8 +112,8 @@ def find_direction(
 
     # trainable delta-s
     styles_direction = torch.zeros(1, N_STYLE_CHANNELS, 512, device=device)
+
     trainable_delta_s = styles_direction.index_select(1, torch.tensor(S_TRAINABLE_SPACE_CHANNELS, device=device))
-    print(f"training param shape {trainable_delta_s.shape}")
     trainable_delta_s.requires_grad = True
 
     checkpoint = torch.load("mobilenet_224_model_best_gdconv_external.pth.tar", map_location=device)
@@ -240,6 +125,13 @@ def find_direction(
     id_loss = IDLoss("a").to(device).eval()
     clip_loss1_func, clip_loss2_func = init_clip_loss(clip_loss_type, clip_type, device, text_prompt,
                                                       negative_text_prompt)
+
+    # if only_face_mask:
+    #     idx = np.load(s_input)['idx']
+    #     masks_dir = "/".join(s_input.split("/")[:-1]) + "/parsings/"
+    #     masks_paths = [f"{masks_dir}/proj{idx[i]:02d}.png" for i in range(n_items)]
+    #     masks = [read_image_mask(path, mask_min_value=mask_min_value, dilation=True) for path in masks_paths]
+
     temp_photos = []
     grads = []
     for i in range(math.ceil(n_items / batch_size)):
@@ -299,15 +191,23 @@ def find_direction(
             # ------ COMPUTE LOSS --------
 
             opt.zero_grad()
-            loss.backward(retain_graph=True)
+            loss.backward()
 
             grad_norm = trainable_delta_s.grad.data.norm()
+            # grad_norm = torch.nn.utils.clip_grad_norm_(trainable_delta_s, max_norm=clip_gradient_norm)
+            # grads.append(trainable_delta_s.grad.clone())
             opt.step()
 
             print(f"Iteration {cur_iteration}, img size: {img.size(-1)}, gradient norm: {grad_norm:.4f}, "
                   f"lr: {new_learning_rate:.4f}")
             print(f"Total loss: {loss.item():.4f}, identity loss: {identity_loss.item():.4f}, "
                   f"landmarks loss: {face_landmarks_loss.item():.4f}, l2 loss: {manipulation_direction_loss.item():.4f}")
+
+            # print(f"Clip loss: {clip_alignment_loss.item():.3f}, "
+            #       f"Identity loss: {identity_loss.item():.3f}, "
+            #       f"Landmarks loss: {face_landmarks_loss.item():.3f}, "
+            #       f"Manipulation direction loss: {manipulation_direction_loss.item():.3f}, "
+            #       f"Total loss: {loss.item():.4f}")
 
     styles_direction = styles_direction.detach()
     output_direction_filepath = f'{outdir}/direction_{text_prompt.replace(" ", "_")}.npz'

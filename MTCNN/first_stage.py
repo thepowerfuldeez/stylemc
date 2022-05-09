@@ -6,7 +6,7 @@ import numpy as np
 from .box_utils import nms, _preprocess
 
 
-def run_first_stage(image, net, scale, threshold):
+def run_first_stage(image, net, scale, threshold, device='cuda'):
     """Run P-Net, generate bounding boxes, and do NMS.
 
     Arguments:
@@ -25,15 +25,16 @@ def run_first_stage(image, net, scale, threshold):
 
     # scale the image and convert it to a float array
     width, height = image.size
-    sw, sh = math.ceil(width*scale), math.ceil(height*scale)
+    sw, sh = math.ceil(width * scale), math.ceil(height * scale)
     img = image.resize((sw, sh), Image.BILINEAR)
     img = np.asarray(img, 'float32')
-    #img = Variable(torch.FloatTensor(_preprocess(img)), volatile=True)
+
     with torch.no_grad():
-        img = torch.FloatTensor(_preprocess(img))
+        img = torch.FloatTensor(_preprocess(img)).to(device)
+
     output = net(img)
-    probs = output[1].data.numpy()[0, 1, :, :]
-    offsets = output[0].data.numpy()
+    probs = output[1].data.cpu().numpy()[0, 1, :, :]
+    offsets = output[0].data.cpu().numpy()
     # probs: probability of a face at each sliding window
     # offsets: transformations to true bounding boxes
 
@@ -87,10 +88,10 @@ def _generate_bboxes(probs, offsets, scale, threshold):
     # P-Net is applied to scaled images
     # so we need to rescale bounding boxes back
     bounding_boxes = np.vstack([
-        np.round((stride*inds[1] + 1.0)/scale),
-        np.round((stride*inds[0] + 1.0)/scale),
-        np.round((stride*inds[1] + 1.0 + cell_size)/scale),
-        np.round((stride*inds[0] + 1.0 + cell_size)/scale),
+        np.round((stride * inds[1] + 1.0) / scale),
+        np.round((stride * inds[0] + 1.0) / scale),
+        np.round((stride * inds[1] + 1.0 + cell_size) / scale),
+        np.round((stride * inds[0] + 1.0 + cell_size) / scale),
         score, offsets
     ])
     # why one is added?
