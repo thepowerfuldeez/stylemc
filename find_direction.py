@@ -76,6 +76,90 @@ def detect_landmarks(img, model, device, mean, std, out_size):
         return torch.zeros(68, 2, device=device)
 
 
+def init_clip_loss(clip_loss_type, clip_type, device, text_prompt, negative_text_prompt):
+    if clip_loss_type == "nada":
+        if clip_type == "double":
+            clip_loss1 = CLIPLossNADA(device, clip_model="ViT-B/32")
+            clip_loss2 = CLIPLossNADA(device, clip_model="ViT-B/16")
+        else:
+            clip_loss1 = CLIPLossNADA(device, clip_model="ViT-B/32")
+    elif clip_loss_type == "nada_global":
+        if clip_type == "double":
+            clip_loss1 = CLIPLossNADA(device, clip_model="ViT-B/32", lambda_direction=0.0, lambda_global=1.0)
+            clip_loss2 = CLIPLossNADA(device, clip_model="ViT-B/16", lambda_direction=0.0, lambda_global=1.0)
+        else:
+            clip_loss1 = CLIPLossNADA(device, clip_model="ViT-B/32", lambda_direction=0.0, lambda_global=1.0)
+    else:
+        if clip_type == "double":
+            clip_loss1 = CLIPLoss(device, text_prompt, negative_text_prompt, clip_type="small")
+            clip_loss2 = CLIPLoss(device, text_prompt, negative_text_prompt, clip_type="large")
+        else:
+            clip_loss1 = CLIPLoss(device, text_prompt, negative_text_prompt, clip_type=clip_type)
+    return clip_loss1, clip_loss2
+
+
+def compute_landmarks_loss(original_img_batch, gen_img_batch,
+                           landmarks_loss, landmarks_loss_coef, model, device, mean, std, img_size=224):
+    if landmarks_loss_coef != 0:
+        landmarks1 = torch.stack([
+            detect_landmarks(denorm_img(original_img_batch[i]), model, device, mean, std, img_size)
+            for i in range(original_img_batch.shape[0])
+        ])
+        try:
+            landmarks2 = torch.stack([
+                detect_landmarks(denorm_img(gen_img_batch[i]), model, device, mean, std, img_size)
+                for i in range(gen_img_batch.shape[0])
+            ])
+        except:
+            print("could not detect landmarks")
+            landmarks2 = landmarks1
+        face_landmarks_loss = landmarks_loss(landmarks1, landmarks2)
+        face_landmarks_loss *= landmarks_loss_coef
+    else:
+        face_landmarks_loss = 0
+    return face_landmarks_loss
+
+
+def compute_clip_loss(original_img_batch, gen_img_batch, clip_loss_type, clip_type, clip_loss_coef,
+                      clip_loss1, clip_loss2, transf, mean, std, device, text_prompt, negative_text_prompt):
+    # if only_face_mask:
+    #     mask = torch.stack(masks[i * batch_size:(i + 1) * batch_size]).unsqueeze(1).to(device)
+    #     mask = F.interpolate(mask, size=img_unprocessed.size()[2:], mode='bilinear', align_corners=False)
+    #     img_unprocessed = img_unprocessed * mask
+    #     mask2 = mask.detach()
+    #     mask2[:, int(mask.size(1) * 0.85):] = mask_min_value
+    #     original_img_unprocessed = original_img_unprocessed * mask2
+
+    if clip_loss_type == "nada" or clip_loss_type == "nada_global":
+        if clip_type == "double":
+            clip1_alignment_loss = clip_loss1(original_img_batch, negative_text_prompt, gen_img_batch, text_prompt)
+            clip2_alignment_loss = clip_loss2(original_img_batch, negative_text_prompt, gen_img_batch, text_prompt)
+            # when using double clip + only mask, no need to reduce second weight
+            if 0: #only_face_mask:
+                clip_alignment_loss = clip1_alignment_loss + clip2_alignment_loss
+            else:
+                clip_alignment_loss = clip1_alignment_loss + clip2_alignment_loss * 0.5
+        else:
+            clip_alignment_loss = clip_loss1(original_img_batch, negative_text_prompt, gen_img_batch, text_prompt)
+    else:
+        img_unprocessed = unprocess(gen_img_batch, transf, mean, std)
+        original_img_unprocessed = unprocess(original_img_batch, transf, mean, std)
+
+        if clip_type == "double":
+            clip1_alignment_loss = clip_loss1(original_img_unprocessed, img_unprocessed)
+            clip2_alignment_loss = clip_loss2(original_img_unprocessed, img_unprocessed)
+
+            # when using double clip + only mask, no need to reduce second weight
+            if 0: #only_face_mask:
+                clip_alignment_loss = clip1_alignment_loss + clip2_alignment_loss
+            else:
+                clip_alignment_loss = clip1_alignment_loss + clip2_alignment_loss * 0.5
+        else:
+            clip_alignment_loss = clip_loss1(original_img_unprocessed, img_unprocessed)
+    clip_alignment_loss *= clip_loss_coef
+    return clip_alignment_loss
+
+
 @click.command()
 @click.pass_context
 @click.option('--network', 'network_pkl', help='Network pickle filename', required=False,
@@ -139,17 +223,13 @@ def find_direction(
     img_size = 224
     transf = Compose([Resize(img_size, interpolation=Image.BICUBIC), CenterCrop(img_size)])
 
-    styles_input = np.load(s_input)['s']
-    styles_array = torch.tensor(styles_input, device=device)
+    styles_array = torch.tensor(np.load(s_input)['s'], device=device)
     n_items = styles_array.size(0)
     temp_shapes = get_temp_shapes(G)
-
     resolution_dict = {256: 6, 512: 7, 1024: 8}
-    id_coeff = identity_loss_coef
 
     # trainable delta-s
     styles_direction = torch.zeros(1, N_STYLE_CHANNELS, 512, device=device)
-
     trainable_delta_s = styles_direction.index_select(1, torch.tensor(S_TRAINABLE_SPACE_CHANNELS, device=device))
     trainable_delta_s.requires_grad = True
 
@@ -157,34 +237,16 @@ def find_direction(
     mobilenet = torch.nn.DataParallel(MobileNet_GDConv(136)).to(device)
     mobilenet.load_state_dict(checkpoint['state_dict'])
     mobilenet.eval()
+
     landmarks_loss = WingLoss(omega=5)
-
     id_loss = IDLoss("a").to(device).eval()
+    clip_loss1, clip_loss2 = init_clip_loss(clip_loss_type, clip_type, device, text_prompt, negative_text_prompt)
 
-    if clip_loss_type == "nada":
-        if clip_type == "double":
-            clip_loss1 = CLIPLossNADA(device, clip_model="ViT-B/32")
-            clip_loss2 = CLIPLossNADA(device, clip_model="ViT-B/16")
-        else:
-            clip_loss1 = CLIPLossNADA(device, clip_model="ViT-B/32")
-    elif clip_loss_type == "nada_global":
-        if clip_type == "double":
-            clip_loss1 = CLIPLossNADA(device, clip_model="ViT-B/32", lambda_direction=0.0, lambda_global=1.0)
-            clip_loss2 = CLIPLossNADA(device, clip_model="ViT-B/16", lambda_direction=0.0, lambda_global=1.0)
-        else:
-            clip_loss1 = CLIPLossNADA(device, clip_model="ViT-B/32", lambda_direction=0.0, lambda_global=1.0)
-    else:
-        if clip_type == "double":
-            clip_loss1 = CLIPLoss(device, text_prompt, negative_text_prompt, clip_type="small")
-            clip_loss2 = CLIPLoss(device, text_prompt, negative_text_prompt, clip_type="large")
-        else:
-            clip_loss1 = CLIPLoss(device, text_prompt, negative_text_prompt, clip_type=clip_type)
-
-    if only_face_mask:
-        idx = np.load(s_input)['idx']
-        masks_dir = "/".join(s_input.split("/")[:-1]) + "/parsings/"
-        masks_paths = [f"{masks_dir}/proj{idx[i]:02d}.png" for i in range(n_items)]
-        masks = [read_image_mask(path, mask_min_value=mask_min_value, dilation=True) for path in masks_paths]
+    # if only_face_mask:
+    #     idx = np.load(s_input)['idx']
+    #     masks_dir = "/".join(s_input.split("/")[:-1]) + "/parsings/"
+    #     masks_paths = [f"{masks_dir}/proj{idx[i]:02d}.png" for i in range(n_items)]
+    #     masks = [read_image_mask(path, mask_min_value=mask_min_value, dilation=True) for path in masks_paths]
 
     temp_photos = []
     grads = []
@@ -208,6 +270,7 @@ def find_direction(
     for epoch in range(n_epochs):
         for _ in range(num_batches):
             cur_iteration += 1
+
             # change learning rate param group of optimizer with cosine rule
             new_learning_rate = np.cos(
                 np.pi * cur_iteration / total_num_iterations) * learning_rate * 0.5 + learning_rate * 0.5
@@ -224,65 +287,25 @@ def find_direction(
 
             # use original image for identity loss
             original_img = torch.tensor(temp_photos[i]).to(device)
+
+            # ------ COMPUTE LOSS --------
             identity_loss, _ = id_loss(img, original_img)
-            identity_loss *= id_coeff
+            identity_loss *= identity_loss_coef
 
-            img_unprocessed = unprocess(img, transf, mean, std)
-            original_img_unprocessed = unprocess(original_img, transf, mean, std)
+            face_landmarks_loss = compute_landmarks_loss(original_img, img, landmarks_loss, landmarks_loss_coef,
+                                                         mobilenet, device, mean, std, img_size)
 
-            landmarks1 = torch.stack([
-                detect_landmarks(denorm_img(original_img[i]), mobilenet, device, mean, std, img_size)
-                for i in range(original_img.shape[0])
-            ])
-            try:
-                landmarks2 = torch.stack([
-                    detect_landmarks(denorm_img(img[i]), mobilenet, device, mean, std, img_size)
-                    for i in range(img.shape[0])
-                ])
-            except:
-                print("could not detect landmarks")
-                landmarks2 = landmarks1
-            face_landmarks_loss = landmarks_loss(landmarks1, landmarks2)
-            face_landmarks_loss *= landmarks_loss_coef
-
-            if only_face_mask:
-                mask = torch.stack(masks[i * batch_size:(i + 1) * batch_size]).unsqueeze(1).to(device)
-                mask = F.interpolate(mask, size=img_unprocessed.size()[2:], mode='bilinear', align_corners=False)
-                img_unprocessed = img_unprocessed * mask
-                mask2 = mask.detach()
-                mask2[:, int(mask.size(1) * 0.85):] = mask_min_value
-                original_img_unprocessed = original_img_unprocessed * mask2
-
-            if clip_loss_type == "nada" or clip_loss_type == "nada_global":
-                if clip_type == "double":
-                    clip1_alignment_loss = clip_loss1(original_img, negative_text_prompt, img, text_prompt)
-                    clip2_alignment_loss = clip_loss2(original_img, negative_text_prompt, img, text_prompt)
-                    # when using double clip + only mask, no need to reduce second weight
-                    if only_face_mask:
-                        clip_alignment_loss = clip1_alignment_loss + clip2_alignment_loss
-                    else:
-                        clip_alignment_loss = clip1_alignment_loss + clip2_alignment_loss * 0.5
-                else:
-                    clip_alignment_loss = clip_loss1(original_img, negative_text_prompt, img, text_prompt)
-            else:
-                if clip_type == "double":
-                    clip1_alignment_loss = clip_loss1(original_img_unprocessed, img_unprocessed)
-                    clip2_alignment_loss = clip_loss2(original_img_unprocessed, img_unprocessed)
-
-                    # when using double clip + only mask, no need to reduce second weight
-                    if only_face_mask:
-                        clip_alignment_loss = clip1_alignment_loss + clip2_alignment_loss
-                    else:
-                        clip_alignment_loss = clip1_alignment_loss + clip2_alignment_loss * 0.5
-                else:
-                    clip_alignment_loss = clip_loss1(original_img_unprocessed, img_unprocessed)
-
-            clip_alignment_loss *= clip_loss_coef
+            clip_alignment_loss = compute_clip_loss(
+                original_img, img, clip_loss_type, clip_type, clip_loss_coef, clip_loss1, clip_loss2, transf,
+                mean, std, device, text_prompt, negative_text_prompt
+            )
 
             manipulation_direction_loss = trainable_delta_s.norm(2, dim=-1).mean()
             manipulation_direction_loss *= l2_reg_coef
 
             loss = identity_loss + clip_alignment_loss + manipulation_direction_loss + face_landmarks_loss
+
+            # ------ COMPUTE LOSS --------
 
             opt.zero_grad()
             loss.backward(retain_graph=True)
@@ -291,7 +314,7 @@ def find_direction(
             grads.append(trainable_delta_s.grad.clone())
             opt.step()
 
-            print(f"Iteration {cur_iteration}, img size: {img_unprocessed.size(-1)}, gradient norm: {grad_norm:.4f}, "
+            print(f"Iteration {cur_iteration}, img size: {img.size(-1)}, gradient norm: {grad_norm:.4f}, "
                   f"lr: {new_learning_rate:.4f}")
             print(f"Clip loss: {clip_alignment_loss.item():.3f}, "
                   f"Identity loss: {identity_loss.item():.3f}, "
