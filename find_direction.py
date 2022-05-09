@@ -141,7 +141,6 @@ def compute_landmarks_loss(gen_img_batch, original_img_batch,
 
 def compute_clip_loss(gen_img_batch, original_img_batch, clip_loss_type, clip_type, clip_loss_coef,
                       clip_loss1, clip_loss2, transf, mean, std, device, text_prompt, negative_text_prompt):
-
     if clip_loss_type == "nada" or clip_loss_type == "nada_global":
         if clip_type == "double":
             clip1_alignment_loss = clip_loss1(original_img_batch, negative_text_prompt, gen_img_batch, text_prompt)
@@ -162,6 +161,37 @@ def compute_clip_loss(gen_img_batch, original_img_batch, clip_loss_type, clip_ty
         else:
             clip_alignment_loss = clip_loss1(original_img_unprocessed, img_unprocessed)
     return clip_loss_coef * clip_alignment_loss
+
+
+def compute_loss(
+        img, original_img, transf, mean, std, device,
+        clip_loss_type, clip_type, clip_loss_coef, clip_loss1_func, clip_loss2_func, text_prompt, negative_text_prompt,
+        id_loss, identity_loss_coef,
+        landmarks_loss, landmarks_loss_coef, mobilenet,
+        img_size, styles, styles2, l2_reg_coef
+):
+    identity_loss, _ = id_loss(img, original_img)
+    identity_loss *= identity_loss_coef
+
+    face_landmarks_loss = compute_landmarks_loss(img, original_img, landmarks_loss, landmarks_loss_coef,
+                                                 mobilenet, device, mean, std, img_size)
+
+    clip_alignment_loss = compute_clip_loss(
+        img, original_img, clip_loss_type, clip_type, clip_loss_coef, clip_loss1_func, clip_loss2_func, transf,
+        mean, std, device, text_prompt, negative_text_prompt
+    )
+
+    manipulation_direction_loss = l2_reg_coef * F.mse_loss(styles2[:, S_TRAINABLE_SPACE_CHANNELS],
+                                                           styles[:, S_TRAINABLE_SPACE_CHANNELS])
+
+    loss = identity_loss + clip_alignment_loss + manipulation_direction_loss + face_landmarks_loss
+    loss_dict = {
+        "clip_loss": clip_alignment_loss,
+        "identity_loss": identity_loss,
+        "landmarks_loss": face_landmarks_loss,
+        "l2_loss": manipulation_direction_loss
+    }
+    return loss, loss_dict
 
 
 @click.command()
@@ -280,21 +310,15 @@ def find_direction(
             original_img = torch.tensor(temp_photos[i]).to(device)
 
             # ------ COMPUTE LOSS --------
-            identity_loss, _ = id_loss(img, original_img)
-            identity_loss *= identity_loss_coef
+            loss, loss_dict = compute_loss(
+                img, original_img, transf, mean, std, device,
+                clip_loss_type, clip_type, clip_loss_coef, clip_loss1_func, clip_loss2_func, text_prompt,
+                negative_text_prompt,
 
-            face_landmarks_loss = compute_landmarks_loss(img, original_img, landmarks_loss, landmarks_loss_coef,
-                                                         mobilenet, device, mean, std, img_size)
-
-            clip_alignment_loss = compute_clip_loss(
-                img, original_img, clip_loss_type, clip_type, clip_loss_coef, clip_loss1_func, clip_loss2_func, transf,
-                mean, std, device, text_prompt, negative_text_prompt
+                id_loss, identity_loss_coef,
+                landmarks_loss, landmarks_loss_coef, mobilenet, img_size,
+                styles, styles2, l2_reg_coef
             )
-
-            manipulation_direction_loss = l2_reg_coef * F.mse_loss(styles2, styles)
-
-            loss = identity_loss + clip_alignment_loss + manipulation_direction_loss + face_landmarks_loss
-
             # ------ COMPUTE LOSS --------
 
             opt.zero_grad()
@@ -305,8 +329,10 @@ def find_direction(
 
             print(f"Iteration {cur_iteration}, img size: {img.size(-1)}, gradient norm: {grad_norm:.4f}, "
                   f"lr: {new_learning_rate:.4f}")
-            print(f"Total loss: {loss.item():.4f}, identity loss: {identity_loss.item():.4f}, "
-                  f"landmarks loss: {face_landmarks_loss.item():.4f}, l2 loss: {manipulation_direction_loss.item():.4f}")
+            print(f"Total loss: {loss.item():.4f}, clip loss: {loss_dict['clip_loss']:.4f}, "
+                  f"identity loss: {loss_dict['identity_loss']:.4f}, "
+                  f"landmarks loss: {loss_dict['landmarks_loss']:.4f}, "
+                  f"l2 loss: {loss_dict['l2_loss']:.4f}")
 
     styles_direction = styles_direction.detach()
     output_direction_filepath = f'{outdir}/direction_{text_prompt.replace(" ", "_")}.npz'

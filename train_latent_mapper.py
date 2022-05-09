@@ -26,15 +26,12 @@ from PIL import Image
 import legacy
 import dnnlib
 from id_loss import IDLoss
-from clip_loss import CLIPLoss
-from clip_loss_nada import CLIPLoss as CLIPLossNADA
 from landmarks_loss import LandmarksLoss, WingLoss
-from MTCNN import detect_faces
 from mobilenet_facial import MobileNet_GDConv
 from utils import read_image_mask, get_mean_std, generate_image, get_temp_shapes
-from warp_images import crop_face
 
-from find_direction import denorm_img, unprocess, detect_landmarks, init_clip_loss, compute_landmarks_loss, compute_clip_loss
+from find_direction import init_clip_loss, compute_loss
+from latent_mappers import Mapper
 
 # 18 real, 8 for torgb layers
 N_STYLE_CHANNELS = 26
@@ -58,14 +55,10 @@ S_TRAINABLE_SPACE_CHANNELS = [2, 3, 5, 6, 8, 9, 11, 12]
 @click.option('--clip_type', help='Type of CLIP loss (small, large, double)', type=str, required=True, default='double')
 @click.option('--clip_loss_type', help='Type of CLIP loss (nada or default)', type=str, required=True,
               default='default')
-@click.option('--only_face_mask', help='Perform optimization only at face region (excluded bg, hair, ears etc)',
-              type=int, required=True, default=0)
-@click.option('--mask_min_value', help='Mask min value when using face masks', type=float, required=True, default=0.1)
 @click.option('--resolution', help='Resolution of output images', type=int, required=True, default=512)
 @click.option('--batch_size', help='Batch Size', type=int, required=True, default=4)
 @click.option('--learning_rate', help='Learning rate for s estimation, defaults to 2.5',
               type=float, required=True, default=0.005)
-@click.option('--clip_gradient_norm', help='clip gradient norm', type=float, required=True, default=0.1)
 @click.option('--n_epochs', help='number of epochs', type=int, required=True, default=4)
 @click.option('--identity_loss_coef', help='Identity loss coef', type=float, required=True, default=0.6)
 @click.option('--landmarks_loss_coef', help='Landmarks loss coef', type=float, required=True, default=25.0)
@@ -81,12 +74,9 @@ def find_direction(
         negative_text_prompt: Optional[str],
         clip_type: str,
         clip_loss_type: str,
-        only_face_mask: int,
-        mask_min_value: float,
         resolution: int,
         batch_size: int,
         learning_rate: float,
-        clip_gradient_norm: float,
         n_epochs: int,
         identity_loss_coef: float,
         landmarks_loss_coef: float,
@@ -113,27 +103,21 @@ def find_direction(
     # trainable delta-s
     styles_direction = torch.zeros(1, N_STYLE_CHANNELS, 512, device=device)
 
-    trainable_delta_s = styles_direction.index_select(1, torch.tensor(S_TRAINABLE_SPACE_CHANNELS, device=device))
-    trainable_delta_s.requires_grad = True
+    mapper = ... # 4096
+    # trainable_delta_s = styles_direction.index_select(1, torch.tensor(S_TRAINABLE_SPACE_CHANNELS, device=device))
+    # trainable_delta_s.requires_grad = True
 
     checkpoint = torch.load("mobilenet_224_model_best_gdconv_external.pth.tar", map_location=device)
     mobilenet = torch.nn.DataParallel(MobileNet_GDConv(136)).to(device)
     mobilenet.load_state_dict(checkpoint['state_dict'])
     mobilenet.eval()
 
-    landmarks_loss = WingLoss(omega=5)
+    landmarks_loss = WingLoss(omega=8)
     id_loss = IDLoss("a").to(device).eval()
     clip_loss1_func, clip_loss2_func = init_clip_loss(clip_loss_type, clip_type, device, text_prompt,
                                                       negative_text_prompt)
 
-    # if only_face_mask:
-    #     idx = np.load(s_input)['idx']
-    #     masks_dir = "/".join(s_input.split("/")[:-1]) + "/parsings/"
-    #     masks_paths = [f"{masks_dir}/proj{idx[i]:02d}.png" for i in range(n_items)]
-    #     masks = [read_image_mask(path, mask_min_value=mask_min_value, dilation=True) for path in masks_paths]
-
     temp_photos = []
-    grads = []
     for i in range(math.ceil(n_items / batch_size)):
         # WARMING UP STEP
         # print(i*batch_size, "processed", time.time()-t1)
@@ -144,7 +128,7 @@ def find_direction(
         img2_cpu = img2.detach().cpu().numpy()
         temp_photos.append(img2_cpu)
 
-    opt = SGD([trainable_delta_s], lr=learning_rate)
+    opt = Adam(mapper.parameters(), lr=learning_rate)
     num_batches = math.ceil(n_items / batch_size)
     total_num_iterations = num_batches * n_epochs
     cur_iteration = 0
@@ -164,8 +148,11 @@ def find_direction(
             i = np.random.randint(0, math.ceil(n_items / batch_size))
             styles = styles_array[i * batch_size:(i + 1) * batch_size].to(device)
 
+            styles_input = styles[:, S_TRAINABLE_SPACE_CHANNELS, :]  # batch x 8 x 512
+            delta = mapper(styles_input)
+
             # new style vector
-            styles_direction[:, S_TRAINABLE_SPACE_CHANNELS] = trainable_delta_s
+            styles_direction[:, S_TRAINABLE_SPACE_CHANNELS] = 0.1 * delta
             styles2 = styles + styles_direction
             _, img = generate_image(G, resolution_dict[resolution], styles2, temp_shapes, noise_mode)
 
@@ -173,48 +160,34 @@ def find_direction(
             original_img = torch.tensor(temp_photos[i]).to(device)
 
             # ------ COMPUTE LOSS --------
-            identity_loss, _ = id_loss(img, original_img)
-            identity_loss *= identity_loss_coef
+            loss, loss_dict = compute_loss(
+                img, original_img, transf, mean, std, device,
+                clip_loss_type, clip_type, clip_loss_coef, clip_loss1_func, clip_loss2_func, text_prompt,
+                negative_text_prompt,
 
-            face_landmarks_loss = compute_landmarks_loss(img, original_img, landmarks_loss, landmarks_loss_coef,
-                                                         mobilenet, device, mean, std, img_size)
-
-            clip_alignment_loss = compute_clip_loss(
-                img, original_img, clip_loss_type, clip_type, clip_loss_coef, clip_loss1_func, clip_loss2_func, transf,
-                mean, std, device, text_prompt, negative_text_prompt
+                id_loss, identity_loss_coef,
+                landmarks_loss, landmarks_loss_coef, mobilenet, img_size,
+                styles, styles2, l2_reg_coef
             )
-
-            manipulation_direction_loss = l2_reg_coef * F.mse_loss(styles2, styles)
-
-            loss = identity_loss + clip_alignment_loss + manipulation_direction_loss + face_landmarks_loss
-
             # ------ COMPUTE LOSS --------
 
             opt.zero_grad()
-            loss.backward()
+            loss.backward(retain_graph=True)
 
-            grad_norm = trainable_delta_s.grad.data.norm()
-            # grad_norm = torch.nn.utils.clip_grad_norm_(trainable_delta_s, max_norm=clip_gradient_norm)
-            # grads.append(trainable_delta_s.grad.clone())
+            grad_norm = 0
+            for p in mapper.parameters():
+                grad_norm += p.grad.data.norm()
             opt.step()
 
             print(f"Iteration {cur_iteration}, img size: {img.size(-1)}, gradient norm: {grad_norm:.4f}, "
                   f"lr: {new_learning_rate:.4f}")
-            print(f"Total loss: {loss.item():.4f}, identity loss: {identity_loss.item():.4f}, "
-                  f"landmarks loss: {face_landmarks_loss.item():.4f}, l2 loss: {manipulation_direction_loss.item():.4f}")
+            print(f"Total loss: {loss.item():.4f}, clip loss: {loss_dict['clip_loss']:.4f}, "
+                  f"identity loss: {loss_dict['identity_loss']:.4f}, "
+                  f"landmarks loss: {loss_dict['landmarks_loss']:.4f}, "
+                  f"l2 loss: {loss_dict['l2_loss']:.4f}")
 
-            # print(f"Clip loss: {clip_alignment_loss.item():.3f}, "
-            #       f"Identity loss: {identity_loss.item():.3f}, "
-            #       f"Landmarks loss: {face_landmarks_loss.item():.3f}, "
-            #       f"Manipulation direction loss: {manipulation_direction_loss.item():.3f}, "
-            #       f"Total loss: {loss.item():.4f}")
-
-    styles_direction = styles_direction.detach()
-    output_direction_filepath = f'{outdir}/direction_{text_prompt.replace(" ", "_")}.npz'
-    np.savez(output_direction_filepath, s=styles_direction.cpu().numpy())
-
-    output_grads_filepath = f'{outdir}/grads_{text_prompt.replace(" ", "_")}.npz'
-    np.savez(output_grads_filepath, grads=torch.stack(grads).cpu().numpy())
+    output_mapper_filepath = f'{outdir}/mapper_{text_prompt.replace(" ", "_")}.pth'
+    torch.save(mapper.state_dict(), output_mapper_filepath)
 
     print("time passed:", time.time() - t1)
 
