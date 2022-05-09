@@ -15,8 +15,8 @@ class ModulationModule(Module):
         self.layernum = layernum
         self.fc = Linear(512, 512)
         self.norm = LayerNorm([self.layernum, 512], elementwise_affine=False)
-        self.gamma_function = Sequential(Linear(512, 512), LayerNorm([512]), LeakyReLU(), Linear(512, 512))
-        self.beta_function = Sequential(Linear(512, 512), LayerNorm([512]), LeakyReLU(), Linear(512, 512))
+        # self.gamma_function = Sequential(Linear(512, 512), LayerNorm([512]), LeakyReLU(), Linear(512, 512))
+        # self.beta_function = Sequential(Linear(512, 512), LayerNorm([512]), LeakyReLU(), Linear(512, 512))
         self.leakyrelu = LeakyReLU()
 
     def forward(self, x, embedding):
@@ -39,7 +39,7 @@ class SubMapperModulation(Module):
         self.pixelnorm = PixelNorm()
         self.modulation_module_list = nn.ModuleList([ModulationModule(self.layernum) for i in range(5)])
 
-    def forward(self, x, embedding):
+    def forward(self, x, embedding=None):
         x = self.pixelnorm(x)
         for modulation_module in self.modulation_module_list:
             x = modulation_module(x, embedding)
@@ -86,8 +86,8 @@ class Mapper(Module):
         else:
             embedding = torch.ones(x.size(0), 8, 512, device=x.device)
 
-        x_coarse = self.course_mapping(x_coarse, embedding[:, :4, :])
-        x_medium = self.medium_mapping(x_medium, embedding[:, 4:8, :])
+        x_coarse = self.course_mapping(x_coarse)#, embedding[:, :4, :])
+        x_medium = self.medium_mapping(x_medium)#, embedding[:, 4:8, :])
 
         out = torch.cat([x_coarse, x_medium], dim=1)
         return out
