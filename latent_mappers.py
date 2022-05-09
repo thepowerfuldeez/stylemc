@@ -27,7 +27,6 @@ class EqualLinear(nn.Module):
         self.leaky_relu = LeakyReLU()
 
     def forward(self, input):
-        print("linear", input.shape)
         if self.activation:
             out = F.linear(input, self.weight * self.scale)
             out = self.leaky_relu(out, self.bias * self.lr_mul)
@@ -77,7 +76,7 @@ class ModulationModule(Module):
 
 
 class SubMapperModulation(Module):
-    def __init__(self, layernum):
+    def __init__(self, layernum=4):
         super(SubMapperModulation, self).__init__()
         self.layernum = layernum
         self.pixelnorm = PixelNorm()
@@ -108,8 +107,8 @@ class SubMapper(Module):
 class Mapper(Module):
     def __init__(self):
         super(Mapper, self).__init__()
-        self.course_mapping = SubMapper(4)
-        self.medium_mapping = SubMapper(4)
+        self.course_mapping = SubMapper()
+        self.medium_mapping = SubMapper()
 
     def forward(self, x):
         """
