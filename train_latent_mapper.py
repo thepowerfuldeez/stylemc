@@ -60,6 +60,7 @@ S_TRAINABLE_SPACE_CHANNELS = [2, 3, 5, 6, 8, 9, 11, 12]
 @click.option('--batch_size', help='Batch Size', type=int, required=True, default=2)
 @click.option('--learning_rate', help='Learning rate', type=float, required=True, default=0.0005)
 @click.option('--n_epochs', help='number of epochs', type=int, required=True, default=10)
+@click.option('--resume', help='resume checkpoint', type=str, required=False, default=None)
 @click.option('--identity_loss_coef', help='Identity loss coef', type=float, required=True, default=0.3)
 @click.option('--landmarks_loss_coef', help='Landmarks loss coef', type=float, required=True, default=0.0)
 @click.option('--l2_reg_coef', help='l2 reg loss coef', type=float, required=True, default=0.8)
@@ -78,6 +79,7 @@ def train_latent_mapper(
         batch_size: int,
         learning_rate: float,
         n_epochs: int,
+        resume: str,
         identity_loss_coef: float,
         landmarks_loss_coef: float,
         l2_reg_coef: float,
@@ -102,6 +104,8 @@ def train_latent_mapper(
     resolution_dict = {256: 6, 512: 7, 1024: 8}
 
     mapper = Mapper().to(device)
+    if resume:
+        mapper.load_state_dict(torch.load(resume, map_location=device))
 
     checkpoint = torch.load("mobilenet_224_model_best_gdconv_external.pth.tar", map_location=device)
     mobilenet = torch.nn.DataParallel(MobileNet_GDConv(136)).to(device)
@@ -137,10 +141,10 @@ def train_latent_mapper(
             cur_iteration += 1
 
             # # change learning rate param group of optimizer with cosine rule
-            # new_learning_rate = np.cos(
-            #     np.pi * cur_iteration / total_num_iterations) * learning_rate * 0.5 + learning_rate * 0.5
-            # for param_group in opt.param_groups:
-            #     param_group['lr'] = new_learning_rate
+            new_learning_rate = np.cos(
+                np.pi * cur_iteration / total_num_iterations) * learning_rate * 0.5 + learning_rate * 0.5
+            for param_group in opt.param_groups:
+                param_group['lr'] = new_learning_rate
 
             i = np.random.randint(0, math.ceil(n_items / batch_size))
             styles = styles_array[i * batch_size:(i + 1) * batch_size].to(device)
@@ -174,6 +178,9 @@ def train_latent_mapper(
                     "generated_img": wandb.Image(denorm_img(img[0].detach().cpu()).numpy().astype('uint8')),
                     **loss_dict
                 }, step=cur_iteration)
+
+            if cur_iteration % 1000 == 999:
+                torch.save(mapper.state_dict(), f"{outdir}/mapper_last.pth")
 
             loss.backward(retain_graph=True)
 
