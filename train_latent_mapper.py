@@ -149,7 +149,7 @@ def train_latent_mapper(
             styles_input = styles[:, S_TRAINABLE_SPACE_CHANNELS, :]  # batch x 8 x 512
             delta = mapper(styles_input)
             styles2 = styles.clone()
-            styles2[:, S_TRAINABLE_SPACE_CHANNELS] += 0.1 * delta
+            styles2[:, S_TRAINABLE_SPACE_CHANNELS] += delta
 
             _, img = generate_image(G, resolution_dict[resolution], styles2, temp_shapes, noise_mode)
 
