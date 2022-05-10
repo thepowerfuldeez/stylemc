@@ -170,14 +170,8 @@ def train_latent_mapper(
 
             if cur_iteration % 100 == 1:
                 wandb.log({
-                    "original_img": wandb.Image(np.stack([
-                        denorm_img(original_img[i].detach().cpu()).numpy().astype('uint8')
-                        for i in range(batch_size)
-                    ])),
-                    "generated_img": wandb.Image(np.stack([
-                        denorm_img(img[i].detach().cpu()).numpy().astype('uint8')
-                        for i in range(batch_size)
-                    ])),
+                    "original_img": wandb.Image(denorm_img(original_img[0].detach().cpu()).numpy().astype('uint8')),
+                    "generated_img": wandb.Image(denorm_img(img[0].detach().cpu()).numpy().astype('uint8')),
                     **loss_dict
                 }, step=cur_iteration)
 
