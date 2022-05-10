@@ -31,7 +31,7 @@ from landmarks_loss import LandmarksLoss, WingLoss
 from mobilenet_facial import MobileNet_GDConv
 from utils import read_image_mask, get_mean_std, generate_image, get_temp_shapes
 
-from find_direction import init_clip_loss, compute_loss, unprocess
+from find_direction import init_clip_loss, compute_loss, denorm_img
 from latent_mappers import Mapper
 
 # 18 real, 8 for torgb layers
@@ -168,10 +168,16 @@ def train_latent_mapper(
             )
             # ------ COMPUTE LOSS --------
 
-            if cur_iteration % 100 == 0:
+            if cur_iteration % 100 == 1:
                 wandb.log({
-                    "original_img": wandb.Image(original_img.detach().cpu().numpy()),
-                    "generated_img": wandb.Image(img.detach().cpu().numpy()),
+                    "original_img": wandb.Image(np.stack([
+                        denorm_img(original_img[i].detach().cpu()).numpy().astype('uint8')
+                        for i in range(batch_size)
+                    ])),
+                    "generated_img": wandb.Image(np.stack([
+                        denorm_img(img[i].detach().cpu()).numpy().astype('uint8')
+                        for i in range(batch_size)
+                    ])),
                     **loss_dict
                 }, step=cur_iteration)
 
