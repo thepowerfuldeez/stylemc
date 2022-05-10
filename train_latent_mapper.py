@@ -106,6 +106,7 @@ def train_latent_mapper(
     mapper = Mapper().to(device)
     if resume:
         mapper.load_state_dict(torch.load(resume, map_location=device))
+        print(f"Loaded mapper from {resume}")
 
     checkpoint = torch.load("mobilenet_224_model_best_gdconv_external.pth.tar", map_location=device)
     mobilenet = torch.nn.DataParallel(MobileNet_GDConv(136)).to(device)
@@ -192,7 +193,8 @@ def train_latent_mapper(
             opt.step()
 
             if cur_iteration % 10 == 0:
-                print(f"Iteration {cur_iteration}, img size: {img.size(-1)}, gradient norm: {grad_norm:.4f}")
+                print(f"Iteration {cur_iteration}, img size: {img.size(-1)}, gradient norm: {grad_norm:.4f}, "
+                      f"lr {new_learning_rate:.4f}")
                 print(f"Total loss: {loss.item():.4f}, clip loss: {loss_dict['clip_loss']:.4f}, "
                       f"identity loss: {loss_dict['identity_loss']:.4f}, "
                       f"landmarks loss: {loss_dict['landmarks_loss']:.4f}, "
