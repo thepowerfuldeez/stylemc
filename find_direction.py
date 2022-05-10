@@ -266,7 +266,7 @@ def find_direction(
     mobilenet.load_state_dict(checkpoint['state_dict'])
     mobilenet.eval()
 
-    landmarks_loss = WingLoss(omega=8)
+    landmarks_loss = LandmarksLoss() #WingLoss(omega=8)
     id_loss = IDLoss("a").to(device).eval()
     clip_loss1_func, clip_loss2_func = init_clip_loss(clip_loss_type, clip_type, device, text_prompt,
                                                       negative_text_prompt)

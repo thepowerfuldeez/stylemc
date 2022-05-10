@@ -15,6 +15,7 @@ import time
 import click
 from typing import List, Optional
 
+import wandb
 import clip
 import numpy as np
 import torch
@@ -82,6 +83,7 @@ def train_latent_mapper(
         l2_reg_coef: float,
         clip_loss_coef: float,
 ):
+    wandb.init(project="stylegan2_latent_mapper", config=ctx.params)
     print('Loading networks from "%s"...' % network_pkl)
     device = torch.device('cuda')
     with dnnlib.util.open_url(network_pkl) as f:
@@ -106,7 +108,7 @@ def train_latent_mapper(
     mobilenet.load_state_dict(checkpoint['state_dict'])
     mobilenet.eval()
 
-    landmarks_loss = WingLoss(omega=8)
+    landmarks_loss = LandmarksLoss()
     id_loss = IDLoss("a").to(device).eval()
     clip_loss1_func, clip_loss2_func = init_clip_loss(clip_loss_type, clip_type, device, text_prompt,
                                                       negative_text_prompt)
@@ -165,6 +167,13 @@ def train_latent_mapper(
                 styles, styles2, l2_reg_coef
             )
             # ------ COMPUTE LOSS --------
+
+            if cur_iteration % 100 == 0:
+                wandb.log({
+                    "original_img": wandb.Image(original_img.detach().cpu().numpy()),
+                    "generated_img": wandb.Image(img.detach().cpu().numpy()),
+                    **loss_dict
+                }, step=cur_iteration)
 
             loss.backward(retain_graph=True)
 
