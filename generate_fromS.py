@@ -100,6 +100,8 @@ def generate_images(
         for i in range(styles.shape[0]):
             imgs = []
             grad_changes = [0, change_power]
+            if i % 1000 == 0:
+                print(i)
 
             for grad_change in grad_changes:
                 if use_mapper:
