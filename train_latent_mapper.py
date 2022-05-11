@@ -118,16 +118,16 @@ def train_latent_mapper(
     clip_loss1_func, clip_loss2_func = init_clip_loss(clip_loss_type, clip_type, device, text_prompt,
                                                       negative_text_prompt)
 
-    temp_photos = []
-    for i in range(math.ceil(n_items / batch_size)):
-        # WARMING UP STEP
-        # print(i*batch_size, "processed", time.time()-t1)
-
-        styles_warmup = styles_array[i * batch_size:(i + 1) * batch_size].to(device)
-
-        _, img2 = generate_image(G, resolution_dict[resolution], styles_warmup, temp_shapes, noise_mode)
-        img2_cpu = img2.detach().cpu().numpy()
-        temp_photos.append(img2_cpu)
+    # temp_photos = []
+    # for i in range(math.ceil(n_items / batch_size)):
+    #     # WARMING UP STEP
+    #     # print(i*batch_size, "processed", time.time()-t1)
+    #
+    #     styles_warmup = styles_array[i * batch_size:(i + 1) * batch_size].to(device)
+    #
+    #     _, img2 = generate_image(G, resolution_dict[resolution], styles_warmup, temp_shapes, noise_mode)
+    #     img2_cpu = img2.detach().cpu().numpy()
+    #     temp_photos.append(img2_cpu)
 
     opt = Adam(mapper.parameters(), lr=learning_rate, betas=(0.9, 0.999))
     num_batches = math.ceil(n_items / batch_size)
@@ -159,7 +159,8 @@ def train_latent_mapper(
             _, img = generate_image(G, resolution_dict[resolution], styles2, temp_shapes, noise_mode)
 
             # use original image for identity loss
-            original_img = torch.tensor(temp_photos[i]).to(device)
+            # original_img = torch.tensor(temp_photos[i]).to(device)
+            _, original_img = generate_image(G, resolution_dict[resolution], styles, temp_shapes, noise_mode)
 
             # ------ COMPUTE LOSS --------
             loss, loss_dict = compute_loss(
