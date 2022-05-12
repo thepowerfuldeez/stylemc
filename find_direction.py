@@ -326,7 +326,7 @@ def find_direction(
                 }, step=cur_iteration)
 
             if cur_iteration % 1000 == 999:
-                np.savez(f"{outdir}/direction_last.npz", styles_direction.detach().cpu().numpy())
+                np.savez(f"{outdir}/direction_last.npz", s=styles_direction.detach().cpu().numpy())
 
             loss.backward(retain_graph=True)
 
