@@ -215,6 +215,7 @@ def compute_loss(
 @click.option('--learning_rate', help='Learning rate for s estimation, defaults to 2.5',
               type=float, required=True, default=1.5)
 @click.option('--n_epochs', help='number of epochs', type=int, required=True, default=4)
+@click.option('--resume', help='resume checkpoint', type=str, required=False, default=None)
 @click.option('--identity_loss_coef', help='Identity loss coef', type=float, required=True, default=0.6)
 @click.option('--landmarks_loss_coef', help='Landmarks loss coef', type=float, required=True, default=25.0)
 @click.option('--l2_reg_coef', help='Landmarks loss coef', type=float, required=True, default=0.1)
@@ -233,6 +234,7 @@ def find_direction(
         batch_size: int,
         learning_rate: float,
         n_epochs: int,
+        resume: str,
         identity_loss_coef: float,
         landmarks_loss_coef: float,
         l2_reg_coef: float,
@@ -244,8 +246,6 @@ def find_direction(
         G = legacy.load_network_pkl(f)['G_ema'].to(device)  # type: ignore
     os.makedirs(outdir, exist_ok=True)
 
-    for p in G.parameters():
-        p.requires_grad = True
     mean, std = get_mean_std(device)
     img_size = 224
     transf = Compose([Resize(img_size, interpolation=Image.BICUBIC), CenterCrop(img_size)])
@@ -256,7 +256,11 @@ def find_direction(
     resolution_dict = {256: 6, 512: 7, 1024: 8}
 
     # trainable delta-s
-    styles_direction = torch.zeros(1, N_STYLE_CHANNELS, 512, device=device)
+    if resume:
+        styles_direction = torch.tensor(np.load(resume)['s'], map_location=device)
+        print(f"Loaded direction from {resume}")
+    else:
+        styles_direction = torch.zeros(1, N_STYLE_CHANNELS, 512, device=device)
     trainable_delta_s = styles_direction.index_select(1, torch.tensor(S_TRAINABLE_SPACE_CHANNELS, device=device))
     print(f"training param shape {trainable_delta_s.shape}")
     trainable_delta_s.requires_grad = True
@@ -270,16 +274,6 @@ def find_direction(
     id_loss = IDLoss("a").to(device).eval()
     clip_loss1_func, clip_loss2_func = init_clip_loss(clip_loss_type, clip_type, device, text_prompt,
                                                       negative_text_prompt)
-    temp_photos = []
-    for i in range(math.ceil(n_items / batch_size)):
-        # WARMING UP STEP
-        # print(i*batch_size, "processed", time.time()-t1)
-
-        styles = styles_array[i * batch_size:(i + 1) * batch_size].to(device)
-
-        _, img2 = generate_image(G, resolution_dict[resolution], styles, temp_shapes, noise_mode)
-        img2_cpu = img2.detach().cpu().numpy()
-        temp_photos.append(img2_cpu)
 
     opt = SGD([trainable_delta_s], lr=learning_rate)
     num_batches = math.ceil(n_items / batch_size)
@@ -290,6 +284,7 @@ def find_direction(
     t1 = time.time()
     for epoch in range(n_epochs):
         for _ in range(num_batches):
+            opt.zero_grad()
             cur_iteration += 1
 
             # change learning rate param group of optimizer with cosine rule
@@ -307,7 +302,10 @@ def find_direction(
             _, img = generate_image(G, resolution_dict[resolution], styles2, temp_shapes, noise_mode)
 
             # use original image for identity loss
-            original_img = torch.tensor(temp_photos[i]).to(device)
+            _, original_img = generate_image(G, resolution_dict[resolution], styles, temp_shapes, noise_mode)
+
+            if cur_iteration % 1000 == 999:
+                np.savez(f"{outdir}/direction_last.npz", styles_direction.detach().cpu().numpy())
 
             # ------ COMPUTE LOSS --------
             loss, loss_dict = compute_loss(
@@ -321,7 +319,6 @@ def find_direction(
             )
             # ------ COMPUTE LOSS --------
 
-            opt.zero_grad()
             loss.backward(retain_graph=True)
 
             grad_norm = trainable_delta_s.grad.data.norm()

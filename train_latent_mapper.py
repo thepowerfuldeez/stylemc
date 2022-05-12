@@ -92,8 +92,6 @@ def train_latent_mapper(
         G = legacy.load_network_pkl(f)['G_ema'].to(device)  # type: ignore
     os.makedirs(outdir, exist_ok=True)
 
-    # for p in G.parameters():
-    #     p.requires_grad = False
     mean, std = get_mean_std(device)
     img_size = 224
     transf = Compose([Resize(img_size, interpolation=Image.BICUBIC), CenterCrop(img_size)])
@@ -118,17 +116,6 @@ def train_latent_mapper(
     clip_loss1_func, clip_loss2_func = init_clip_loss(clip_loss_type, clip_type, device, text_prompt,
                                                       negative_text_prompt)
 
-    # temp_photos = []
-    # for i in range(math.ceil(n_items / batch_size)):
-    #     # WARMING UP STEP
-    #     # print(i*batch_size, "processed", time.time()-t1)
-    #
-    #     styles_warmup = styles_array[i * batch_size:(i + 1) * batch_size].to(device)
-    #
-    #     _, img2 = generate_image(G, resolution_dict[resolution], styles_warmup, temp_shapes, noise_mode)
-    #     img2_cpu = img2.detach().cpu().numpy()
-    #     temp_photos.append(img2_cpu)
-
     opt = Adam(mapper.parameters(), lr=learning_rate, betas=(0.9, 0.999))
     num_batches = math.ceil(n_items / batch_size)
     total_num_iterations = num_batches * n_epochs
@@ -141,7 +128,7 @@ def train_latent_mapper(
             opt.zero_grad()
             cur_iteration += 1
 
-            # # change learning rate param group of optimizer with cosine rule
+            # change learning rate param group of optimizer with cosine rule
             new_learning_rate = np.cos(
                 np.pi * cur_iteration / total_num_iterations) * learning_rate * 0.5 + learning_rate * 0.5
             for param_group in opt.param_groups:
@@ -159,7 +146,6 @@ def train_latent_mapper(
             _, img = generate_image(G, resolution_dict[resolution], styles2, temp_shapes, noise_mode)
 
             # use original image for identity loss
-            # original_img = torch.tensor(temp_photos[i]).to(device)
             _, original_img = generate_image(G, resolution_dict[resolution], styles, temp_shapes, noise_mode)
 
             # ------ COMPUTE LOSS --------
