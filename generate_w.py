@@ -22,7 +22,8 @@ from utils import num_range
 
 @click.command()
 @click.pass_context
-@click.option('--network', 'network_pkl', help='Network pickle filename', required=True)
+@click.option('--network', 'network_pkl', help='Network pickle filename', required=False,
+              default="https://nvlabs-fi-cdn.nvidia.com/stylegan2-ada-pytorch/pretrained/transfer-learning-source-nets/ffhq-res512-mirror-stylegan2-noaug.pkl")
 @click.option('--seeds', type=num_range, help='List of random seeds')
 @click.option('--trunc', 'truncation_psi', type=float, help='Truncation psi', default=1, show_default=True)
 @click.option('--out_file', type=str, help='out file path', default='encoder4editing/projected_w.npz')

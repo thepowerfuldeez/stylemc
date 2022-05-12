@@ -25,7 +25,8 @@ from utils import split_ws, get_styles
 
 @click.command()
 @click.pass_context
-@click.option('--network', 'network_pkl', help='Network pickle filename', required=True)
+@click.option('--network', 'network_pkl', help='Network pickle filename', required=False,
+              default="https://nvlabs-fi-cdn.nvidia.com/stylegan2-ada-pytorch/pretrained/transfer-learning-source-nets/ffhq-res512-mirror-stylegan2-noaug.pkl")
 @click.option('--projected-w', help='Projection result file', type=str, metavar='FILE')
 @click.option('--out_file', type=str, help='out file path', default='out/input.npz')
 def generate_images(
