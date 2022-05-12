@@ -15,6 +15,7 @@ import time
 import click
 from typing import List, Optional
 
+import wandb
 import clip
 import numpy as np
 import torch
@@ -240,6 +241,7 @@ def find_direction(
         l2_reg_coef: float,
         clip_loss_coef: float,
 ):
+    wandb.init(project="stylegan2_latent_mapper", config=ctx.params)
     print('Loading networks from "%s"...' % network_pkl)
     device = torch.device('cuda')
     with dnnlib.util.open_url(network_pkl) as f:
@@ -270,7 +272,7 @@ def find_direction(
     mobilenet.load_state_dict(checkpoint['state_dict'])
     mobilenet.eval()
 
-    landmarks_loss = LandmarksLoss() #WingLoss(omega=8)
+    landmarks_loss = LandmarksLoss()  # WingLoss(omega=8)
     id_loss = IDLoss("a").to(device).eval()
     clip_loss1_func, clip_loss2_func = init_clip_loss(clip_loss_type, clip_type, device, text_prompt,
                                                       negative_text_prompt)
@@ -304,9 +306,6 @@ def find_direction(
             # use original image for identity loss
             _, original_img = generate_image(G, resolution_dict[resolution], styles, temp_shapes, noise_mode)
 
-            if cur_iteration % 1000 == 999:
-                np.savez(f"{outdir}/direction_last.npz", styles_direction.detach().cpu().numpy())
-
             # ------ COMPUTE LOSS --------
             loss, loss_dict = compute_loss(
                 img, original_img, transf, mean, std, device,
@@ -319,17 +318,28 @@ def find_direction(
             )
             # ------ COMPUTE LOSS --------
 
+            if cur_iteration % 100 == 1:
+                wandb.log({
+                    "original_img": wandb.Image(denorm_img(original_img[0].detach().cpu()).numpy().astype('uint8')),
+                    "generated_img": wandb.Image(denorm_img(img[0].detach().cpu()).numpy().astype('uint8')),
+                    **loss_dict
+                }, step=cur_iteration)
+
+            if cur_iteration % 1000 == 999:
+                np.savez(f"{outdir}/direction_last.npz", styles_direction.detach().cpu().numpy())
+
             loss.backward(retain_graph=True)
 
             grad_norm = trainable_delta_s.grad.data.norm()
             opt.step()
 
-            print(f"Iteration {cur_iteration}, img size: {img.size(-1)}, gradient norm: {grad_norm:.4f}, "
-                  f"lr: {new_learning_rate:.4f}")
-            print(f"Total loss: {loss.item():.4f}, clip loss: {loss_dict['clip_loss']:.4f}, "
-                  f"identity loss: {loss_dict['identity_loss']:.4f}, "
-                  f"landmarks loss: {loss_dict['landmarks_loss']:.4f}, "
-                  f"l2 loss: {loss_dict['l2_loss']:.4f}")
+            if cur_iteration % 10 == 0:
+                print(f"Iteration {cur_iteration}, img size: {img.size(-1)}, gradient norm: {grad_norm:.4f}, "
+                      f"lr {new_learning_rate:.4f}")
+                print(f"Total loss: {loss.item():.4f}, clip loss: {loss_dict['clip_loss']:.4f}, "
+                      f"identity loss: {loss_dict['identity_loss']:.4f}, "
+                      f"landmarks loss: {loss_dict['landmarks_loss']:.4f}, "
+                      f"l2 loss: {loss_dict['l2_loss']:.4f}")
 
     styles_direction = styles_direction.detach()
     output_direction_filepath = f'{outdir}/direction_{text_prompt.replace(" ", "_")}.npz'
