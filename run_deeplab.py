@@ -116,7 +116,7 @@ def get_bg_mask(model_segm, img_arr, device):
     return bg_mask
 
 
-def get_earring_mouth_lips_masks(model_segm, img_arr, device, need_earring_mask=True):
+def get_earring_mouth_teeth_masks(model_segm, img_arr, device, need_earring_mask=True):
     _img = preprocess_image(Image.fromarray(img_arr).resize((513, 513)), flip=False, scale=None, crop=(513, 513))
     mask = infer_model(model_segm, _img.unsqueeze(0).to(device))
     earring_mask = np.array(mask) == CLASSES.index("ear_r")
@@ -124,7 +124,8 @@ def get_earring_mouth_lips_masks(model_segm, img_arr, device, need_earring_mask=
 
     mouth_mask = np.array(mask) == CLASSES.index("mouth")
     lips_mask = (np.array(mask) == CLASSES.index("u_lip")) | (np.array(mask) == CLASSES.index("l_lip"))
-    teeth_mask = (cv2.erode(mouth_mask.astype('float'), np.ones((5, 5))) > 0)
+    # teeth_mask = (cv2.erode(mouth_mask.astype('float'), np.ones((5, 5))) > 0)
+    teeth_mask = mouth_mask.copy()
     mouth_mask = (cv2.dilate((mouth_mask | lips_mask).astype('float'), np.ones((7, 7))) > 0)
 
     if need_earring_mask:

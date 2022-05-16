@@ -22,7 +22,7 @@ import dnnlib
 from utils import get_temp_shapes, generate_image, block_forward, num_range
 from find_direction import S_TRAINABLE_SPACE_CHANNELS, N_STYLE_CHANNELS
 from latent_mappers import Mapper
-from run_deeplab import get_model, get_bg_mask, get_earring_mouth_lips_masks
+from run_deeplab import get_model, get_bg_mask, get_earring_mouth_teeth_masks
 
 
 @click.command()
@@ -136,7 +136,7 @@ def generate_images(
                     masks_dict['bg_mask'] = get_bg_mask(model_segm, img_arr, device)
 
                 elif j == 1 and use_blending:
-                    earring_mask, mouth_mask, teeth_mask = get_earring_mouth_lips_masks(
+                    earring_mask, mouth_mask, teeth_mask = get_earring_mouth_teeth_masks(
                         model_segm, img_arr, device,
                         need_earring_mask=not "face of a man" in text_prompt
                     )

@@ -199,7 +199,7 @@ def generate_image(G, until_k, styles, temp_shapes, noise_mode, device,
                 x = blending_mask * xs_original[k] + (1 - blending_mask) * x
 
             # blend teeth from original
-            if res == 64 and use_blending and xs_original is not None and 'teeth_mask' in masks_dict:
+            if res == 128 and use_blending and xs_original is not None and 'teeth_mask' in masks_dict:
                 blending_mask = torch.tensor(cv2.resize(masks_dict['teeth_mask'].astype('float'), (res, res),
                                                         interpolation=cv2.INTER_AREA), device=device).unsqueeze(0)
                 x = blending_mask * xs_original[k] + (1 - blending_mask) * x
