@@ -158,14 +158,24 @@ def get_styles(G, ws, block_ws, device):
     return styles, temp_shapes
 
 
-def generate_image(G, until_k, styles, temp_shapes, noise_mode):
+def generate_image(G, until_k, styles, temp_shapes, noise_mode, device,
+                   use_blending=False, xs_original=None, masks_dict=None):
+    if masks_dict is None:
+        masks_dict = {}
+
     x = img = None
+    xs = []
     styles_idx = 0
     for k, res in enumerate(G.synthesis.block_resolutions):
         # infer block by block, skip if higher than resolution
         block = getattr(G.synthesis, f'b{res}')
         if k > until_k:
             continue
+
+        if xs_original is not None:
+            assert use_blending
+            assert 'bg_mask' in masks_dict
+            assert 'teeth_mask' in masks_dict
 
         if res == 4:
             x, img = block_forward(block, x, img, styles[:, styles_idx:styles_idx + 2, :], temp_shapes[k],
@@ -175,7 +185,35 @@ def generate_image(G, until_k, styles, temp_shapes, noise_mode):
             x, img = block_forward(block, x, img, styles[:, styles_idx:styles_idx + 3, :], temp_shapes[k],
                                    noise_mode=noise_mode)
             styles_idx += 3
-    return x, img
+
+            # blend earrings from original for male2female case
+            if res == 32 and use_blending and 'earring_mask' in masks_dict:
+                blending_mask = torch.tensor(cv2.resize(masks_dict['earring_mask'].astype('float'), (res, res),
+                                                        interpolation=cv2.INTER_AREA), device=device).unsqueeze(0)
+                x = blending_mask * xs_original[k] + (1 - blending_mask) * x
+
+            # blend bg from original
+            if res == 64 and use_blending:
+                blending_mask = torch.tensor(cv2.resize(masks_dict['bg_mask'].astype('float'), (res, res),
+                                                        interpolation=cv2.INTER_AREA), device=device).unsqueeze(0)
+                x = blending_mask * xs_original[k] + (1 - blending_mask) * x
+
+            # blend teeth from original
+            if res == 128 and use_blending:
+                blending_mask = torch.tensor(cv2.resize(masks_dict['teeth_mask'].astype('float'), (res, res),
+                                                        interpolation=cv2.INTER_AREA), device=device).unsqueeze(0)
+                x = blending_mask * xs_original[k] + (1 - blending_mask) * x
+
+            # # blend mouth from global img
+            # if res == 32:
+            #   blending_mask = torch.tensor(cv2.resize(mouth_mask.astype('float'), (res, res),
+            #                                           interpolation=cv2.INTER_AREA), device=device).unsqueeze(0)
+            #   x[1] = blending_mask * x[2] + (1 - blending_mask) * x[1]
+        if xs_original is not None:
+            assert xs_original[k].shape == x.shape
+        xs.append(x)
+
+    return xs, img
 
 
 def read_image_mask(mask_path, mask_min_value=0.0, dilation=True):

@@ -22,6 +22,7 @@ import dnnlib
 from utils import get_temp_shapes, generate_image, block_forward, num_range
 from find_direction import S_TRAINABLE_SPACE_CHANNELS, N_STYLE_CHANNELS
 from latent_mappers import Mapper
+from run_deeplab import get_model, get_bg_mask, get_earring_mouth_lips_masks
 
 
 @click.command()
@@ -37,6 +38,7 @@ from latent_mappers import Mapper
 @click.option('--outdir', help='Where to save the output images', type=str, required=True, metavar='DIR')
 @click.option('--text_prompt', help='Text', type=str, required=True)
 @click.option('--change_power', help='Change power', type=float, required=True, default=2.0)
+@click.option('--use_blending', help='Perform segmentation + feature blending', type=int, required=True, default=0)
 def generate_images(
         ctx: click.Context,
         network_pkl: str,
@@ -48,6 +50,7 @@ def generate_images(
         n: int,
         text_prompt: str,
         change_power: float,
+        use_blending: int,
 ):
     print('Loading networks from "%s"...' % network_pkl)
     device = torch.device('cuda')
@@ -96,12 +99,21 @@ def generate_images(
     if not os.path.isdir(outdir):
         os.makedirs(outdir)
 
+    if use_blending:
+        print("Using blending... Loading segmentation model")
+        model_segm = get_model()
+    else:
+        model_segm = None
+
     with torch.no_grad():
         for i in range(styles.shape[0]):
             imgs = []
             grad_changes = [0, change_power]
             if i % 1000 == 0:
                 print(i)
+
+            masks_dict = {}
+            xs_original = None
 
             for grad_change in grad_changes:
                 if use_mapper:
@@ -113,9 +125,29 @@ def generate_images(
                     styles_direction = global_styles_direction
                 styles += styles_direction * grad_change
 
-                x, img = generate_image(G, 100, styles[[i]], temp_shapes, noise_mode)
+                xs, img = generate_image(G, 100, styles[[i]], temp_shapes, noise_mode, device,
+                                         use_blending=use_blending, xs_original=xs_original, masks_dict=masks_dict)
                 img = (img.permute(0, 2, 3, 1) * 127.5 + 128).clamp(0, 255)
-                imgs.append(img[0].to(torch.uint8).cpu().numpy())
+                img_arr = img[0].to(torch.uint8).cpu().numpy()
+
+                # original image (grad_change == 0)
+                if i == 0 and use_blending:
+                    xs_original = xs
+                    masks_dict['bg_mask'] = get_bg_mask(model_segm, img_arr, device)
+                elif i == 1 and use_blending:
+                    earring_mask, mouth_mask, teeth_mask = get_earring_mouth_lips_masks(model_segm, img_arr, device)
+                    masks_dict['earring_mask'] = earring_mask
+                    masks_dict['mouth_mask'] = mouth_mask
+                    masks_dict['teeth_mask'] = teeth_mask
+
+                    assert 'bg_mask' in masks_dict
+                    # after we have xs_original and computed masks for generated image, regenerate it again with blending
+                    xs, img = generate_image(G, 100, styles[[i]], temp_shapes, noise_mode, device,
+                                             use_blending=use_blending, xs_original=xs_original, masks_dict=masks_dict)
+                    img = (img.permute(0, 2, 3, 1) * 127.5 + 128).clamp(0, 255)
+                    img_arr = img[0].to(torch.uint8).cpu().numpy()
+
+                imgs.append(img_arr)
 
                 styles -= styles_direction * grad_change
 
