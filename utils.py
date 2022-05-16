@@ -174,8 +174,6 @@ def generate_image(G, until_k, styles, temp_shapes, noise_mode, device,
 
         if xs_original is not None:
             assert use_blending
-            assert 'bg_mask' in masks_dict
-            assert 'teeth_mask' in masks_dict
 
         if res == 4:
             x, img = block_forward(block, x, img, styles[:, styles_idx:styles_idx + 2, :], temp_shapes[k],
@@ -187,19 +185,21 @@ def generate_image(G, until_k, styles, temp_shapes, noise_mode, device,
             styles_idx += 3
 
             # blend earrings from original for male2female case
-            if res == 32 and use_blending and xs_original is not None and masks_dict['earring_mask'] is not None:
+            # long if in order to generate non-blended target image for the first time
+            if (res == 32 and use_blending and xs_original is not None
+                    and 'earring_mask' in masks_dict and masks_dict['earring_mask'] is not None):
                 blending_mask = torch.tensor(cv2.resize(masks_dict['earring_mask'].astype('float'), (res, res),
                                                         interpolation=cv2.INTER_AREA), device=device).unsqueeze(0)
                 x = blending_mask * xs_original[k] + (1 - blending_mask) * x
 
             # blend bg from original
-            if res == 64 and use_blending and xs_original is not None:
+            if res == 64 and use_blending and xs_original is not None and 'bg_mask' in masks_dict:
                 blending_mask = torch.tensor(cv2.resize(masks_dict['bg_mask'].astype('float'), (res, res),
                                                         interpolation=cv2.INTER_AREA), device=device).unsqueeze(0)
                 x = blending_mask * xs_original[k] + (1 - blending_mask) * x
 
             # blend teeth from original
-            if res == 128 and use_blending and xs_original is not None:
+            if res == 128 and use_blending and xs_original is not None and 'teeth_mask' in masks_dict:
                 blending_mask = torch.tensor(cv2.resize(masks_dict['teeth_mask'].astype('float'), (res, res),
                                                         interpolation=cv2.INTER_AREA), device=device).unsqueeze(0)
                 x = blending_mask * xs_original[k] + (1 - blending_mask) * x

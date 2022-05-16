@@ -134,6 +134,7 @@ def generate_images(
                 if i == 0 and use_blending:
                     xs_original = xs
                     masks_dict['bg_mask'] = get_bg_mask(model_segm, img_arr, device)
+
                 elif i == 1 and use_blending:
                     earring_mask, mouth_mask, teeth_mask = get_earring_mouth_lips_masks(
                         model_segm, img_arr, device,
