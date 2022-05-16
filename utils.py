@@ -187,7 +187,7 @@ def generate_image(G, until_k, styles, temp_shapes, noise_mode, device,
             styles_idx += 3
 
             # blend earrings from original for male2female case
-            if res == 32 and use_blending and 'earring_mask' in masks_dict:
+            if res == 32 and use_blending and masks_dict['earring_mask'] is not None:
                 blending_mask = torch.tensor(cv2.resize(masks_dict['earring_mask'].astype('float'), (res, res),
                                                         interpolation=cv2.INTER_AREA), device=device).unsqueeze(0)
                 x = blending_mask * xs_original[k] + (1 - blending_mask) * x
