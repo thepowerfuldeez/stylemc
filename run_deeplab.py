@@ -124,8 +124,7 @@ def get_earring_mouth_teeth_masks(model_segm, img_arr, device, need_earring_mask
 
     mouth_mask = np.array(mask) == CLASSES.index("mouth")
     lips_mask = (np.array(mask) == CLASSES.index("u_lip")) | (np.array(mask) == CLASSES.index("l_lip"))
-    # teeth_mask = (cv2.erode(mouth_mask.astype('float'), np.ones((5, 5))) > 0)
-    teeth_mask = mouth_mask.copy()
+    teeth_mask = (cv2.erode(mouth_mask.astype('float'), np.ones((3, 3))) > 0)
     mouth_mask = (cv2.dilate((mouth_mask | lips_mask).astype('float'), np.ones((7, 7))) > 0)
 
     if need_earring_mask:
