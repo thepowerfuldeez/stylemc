@@ -115,7 +115,7 @@ def generate_images(
             masks_dict = {}
             xs_original = None
 
-            for grad_change in grad_changes:
+            for j, grad_change in enumerate(grad_changes):
                 if use_mapper:
                     styles_direction = torch.zeros(1, N_STYLE_CHANNELS, 512, device=device)
                     with torch.no_grad():
@@ -131,11 +131,11 @@ def generate_images(
                 img_arr = img[0].to(torch.uint8).cpu().numpy()
 
                 # original image (grad_change == 0)
-                if i == 0 and use_blending:
+                if j == 0 and use_blending:
                     xs_original = xs
                     masks_dict['bg_mask'] = get_bg_mask(model_segm, img_arr, device)
 
-                elif i == 1 and use_blending:
+                elif j == 1 and use_blending:
                     earring_mask, mouth_mask, teeth_mask = get_earring_mouth_lips_masks(
                         model_segm, img_arr, device,
                         need_earring_mask=not "face of a man" in text_prompt
