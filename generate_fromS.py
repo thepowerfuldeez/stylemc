@@ -132,15 +132,15 @@ def generate_images(
                     with torch.no_grad():
                         delta = mapper(styles[i, S_TRAINABLE_SPACE_CHANNELS].unsqueeze(0))
 
-                        # if use_whitelist:
-                        #     delta[delta < 1.0] = 0.0
+                        if use_whitelist:
+                            delta[delta < 0.1] = 0.0
 
                         styles_direction[:, S_TRAINABLE_SPACE_CHANNELS] = delta
 
-                        if use_whitelist:
-                            mask = torch.tensor(np.isin(np.arange(styles_direction.view(-1).size(0)), WHITELIST_S_IDS))
-                            styles_direction[~mask.view(*styles_direction.size())] = 0.0
-                            print(f"using {styles_direction.view(-1).nonzero().size(0)} styles")
+                        # if use_whitelist:
+                        #     mask = torch.tensor(np.isin(np.arange(styles_direction.view(-1).size(0)), WHITELIST_S_IDS))
+                        #     styles_direction[~mask.view(*styles_direction.size())] = 0.0
+                        #     print(f"using {styles_direction.view(-1).nonzero().size(0)} styles")
                 else:
                     styles_direction = global_styles_direction
                 styles += styles_direction * grad_change
