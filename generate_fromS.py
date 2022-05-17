@@ -32,6 +32,8 @@ WHITELIST_S_IDS = [3405, 5886, 1713, 4934, 4845, 3216, 3583, 4878, 6605, 5711, 6
                    6047, 1718, 4842, 5807, 3262, 4750, 6129, 4353, 6293, 3134, 4752, 3352, 3116, 5748, 5091, 3266,
                    6326, 6504, 3103, 1917, 3359, 3176, 3349, 4848, 6461, 3267, 1968, 3153, 3351, 5673, 4351, 6452, 4676]
 
+STOPLIST_S_IDS = [4863, 6247, 4943, 4724, 3114, 4623, 4726]
+
 
 @click.command()
 @click.pass_context
@@ -133,14 +135,16 @@ def generate_images(
                         delta = mapper(styles[i, S_TRAINABLE_SPACE_CHANNELS].unsqueeze(0))
 
                         if use_whitelist:
-                            delta[delta < 0.1] = 0.0
+                            delta[delta < 0.2] = 0.0
 
                         styles_direction[:, S_TRAINABLE_SPACE_CHANNELS] = delta
 
-                        # if use_whitelist:
-                        #     mask = torch.tensor(np.isin(np.arange(styles_direction.view(-1).size(0)), WHITELIST_S_IDS))
-                        #     styles_direction[~mask.view(*styles_direction.size())] = 0.0
-                        #     print(f"using {styles_direction.view(-1).nonzero().size(0)} styles")
+                        if use_whitelist:
+                            # mask = torch.tensor(np.isin(np.arange(styles_direction.view(-1).size(0)), WHITELIST_S_IDS))
+                            # styles_direction[~mask.view(*styles_direction.size())] = 0.0
+                            mask = torch.tensor(np.isin(np.arange(styles_direction.view(-1).size(0)), STOPLIST_S_IDS))
+                            styles_direction[mask.view(*styles_direction.size())] = 0.0
+                            print(f"using {styles_direction.view(-1).nonzero().size(0)} styles")
                 else:
                     styles_direction = global_styles_direction
                 styles += styles_direction * grad_change
