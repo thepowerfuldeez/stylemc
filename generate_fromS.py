@@ -146,7 +146,7 @@ def generate_images(
                             # styles_direction[~mask.view(*styles_direction.size())] = 0.0
                             mask = torch.tensor(np.isin(np.arange(styles_direction.view(-1).size(0)), STOPLIST_S_IDS))
                             styles_direction[mask.view(*styles_direction.size())] = 0.0
-                            print(f"using {styles_direction.view(-1).nonzero().size(0)} styles")
+                            # print(f"using {styles_direction.view(-1).nonzero().size(0)} styles")
                 else:
                     styles_direction = global_styles_direction
                 styles += styles_direction * grad_change
