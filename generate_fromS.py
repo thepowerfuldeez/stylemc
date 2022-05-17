@@ -79,6 +79,8 @@ def generate_images(
         ws = torch.tensor(ws, device=device)  # pylint: disable=not-callable
         assert ws.shape[1:] == (G.num_ws, G.w_dim)
         for idx, w in enumerate(ws):
+            if idx % 1000 == 0:
+                print(idx)
             img = G.synthesis(w.unsqueeze(0), noise_mode=noise_mode)
             img = (img.permute(0, 2, 3, 1) * 127.5 + 128).clamp(0, 255)
             img = Image.fromarray(img[0].to(torch.uint8).cpu().numpy(), 'RGB')
