@@ -138,7 +138,7 @@ def generate_images(
                         styles_direction[:, S_TRAINABLE_SPACE_CHANNELS] = delta
 
                         if use_whitelist:
-                            mask = torch.tensor(np.isin(styles_direction.view(-1).cpu().numpy(), WHITELIST_S_IDS))
+                            mask = torch.tensor(np.isin(np.arange(styles_direction.view(-1).size(0)), WHITELIST_S_IDS))
                             styles_direction[~mask.view(*styles_direction.size())] = 0.0
                 else:
                     styles_direction = global_styles_direction
