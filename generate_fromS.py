@@ -135,7 +135,7 @@ def generate_images(
                         delta = mapper(styles[i, S_TRAINABLE_SPACE_CHANNELS].unsqueeze(0))
 
                         if use_whitelist:
-                            delta[delta < 0.2] = 0.0
+                            delta[delta.abs() < 0.2] = 0.0
 
                         styles_direction[:, S_TRAINABLE_SPACE_CHANNELS] = delta
 
