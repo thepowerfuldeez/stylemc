@@ -25,6 +25,14 @@ from latent_mappers import Mapper
 from run_deeplab import get_model, get_bg_mask, get_earring_mouth_teeth_masks
 
 
+# first 6 are handpicked, later are values with low std (first 25% of sorted values)
+WHITELIST_S_IDS = [3405, 5886, 1713, 4934, 4845, 3216]
+# WHITELIST_S_IDS = [3405, 5886, 1713, 4934, 4845, 3216, 3583, 4878, 6605, 5711, 6487, 4223, 3264, 3122, 5644, 5700,
+#                    4595, 4821, 4815, 6289, 6388, 4844, 4838, 4982, 5822, 6301, 3447, 1827, 5836, 3203, 6264, 4866,
+#                    6047, 1718, 4842, 5807, 3262, 4750, 6129, 4353, 6293, 3134, 4752, 3352, 3116, 5748, 5091, 3266,
+#                    6326, 6504, 3103, 1917, 3359, 3176, 3349, 4848, 6461, 3267, 1968, 3153, 3351, 5673, 4351, 6452, 4676]
+
+
 @click.command()
 @click.pass_context
 @click.option('--network', 'network_pkl', help='Network pickle filename', required=False,
@@ -39,6 +47,8 @@ from run_deeplab import get_model, get_bg_mask, get_earring_mouth_teeth_masks
 @click.option('--text_prompt', help='Text', type=str, required=True)
 @click.option('--change_power', help='Change power', type=float, required=True, default=2.0)
 @click.option('--use_blending', help='Perform segmentation + feature blending', type=int, required=True, default=0)
+@click.option('--use_whitelist', help='use s indices only from hardcoded list above as well as threshold of 1.0',
+              type=int, required=True, default=0)
 def generate_images(
         ctx: click.Context,
         network_pkl: str,
@@ -51,6 +61,7 @@ def generate_images(
         text_prompt: str,
         change_power: float,
         use_blending: int,
+        use_whitelist: int,
 ):
     print('Loading networks from "%s"...' % network_pkl)
     device = torch.device('cuda')
@@ -120,7 +131,15 @@ def generate_images(
                     styles_direction = torch.zeros(1, N_STYLE_CHANNELS, 512, device=device)
                     with torch.no_grad():
                         delta = mapper(styles[i, S_TRAINABLE_SPACE_CHANNELS].unsqueeze(0))
+
+                        if use_whitelist:
+                            delta[delta < 1.0] = 0.0
+
                         styles_direction[:, S_TRAINABLE_SPACE_CHANNELS] = delta
+
+                        if use_whitelist:
+                            mask = torch.tensor(np.isin(styles_direction.view(-1).cpu().numpy(), WHITELIST_S_IDS))
+                            styles_direction[~mask.view(*styles_direction.size())] = 0.0
                 else:
                     styles_direction = global_styles_direction
                 styles += styles_direction * grad_change
