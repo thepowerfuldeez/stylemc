@@ -132,8 +132,8 @@ def generate_images(
                     with torch.no_grad():
                         delta = mapper(styles[i, S_TRAINABLE_SPACE_CHANNELS].unsqueeze(0))
 
-                        if use_whitelist:
-                            delta[delta < 1.0] = 0.0
+                        # if use_whitelist:
+                        #     delta[delta < 1.0] = 0.0
 
                         styles_direction[:, S_TRAINABLE_SPACE_CHANNELS] = delta
 
