@@ -188,7 +188,7 @@ def generate_images(
                     assert 'bg_mask' in masks_dict
                     # after we have xs_original and computed masks for generated image, regenerate it again with blending
                     if network_pkl != network2_pkl:
-                        xs, img = generate_image(G2, 100, styles[[i]], temp_shapes, noise_mode, device,
+                        xs, img = generate_image(G2, 100, styles[[i]], temp_shapes2, noise_mode, device,
                                                  use_blending=use_blending, xs_original=xs_original, masks_dict=masks_dict)
                     else:
                         xs, img = generate_image(G, 100, styles[[i]], temp_shapes, noise_mode, device,

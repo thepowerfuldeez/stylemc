@@ -63,6 +63,7 @@ S_TRAINABLE_SPACE_CHANNELS = [2, 3, 5, 6, 8, 9, 11, 12]
 @click.option('--learning_rate', help='Learning rate', type=float, required=True, default=0.0005)
 @click.option('--n_epochs', help='number of epochs', type=int, required=True, default=10)
 @click.option('--resume', help='resume checkpoint', type=str, required=False, default=None)
+@click.option('--mapper_neg_slope', help='mapper leaky relu negative slope', type=float, required=True, default=0.01)
 @click.option('--identity_loss_coef', help='Identity loss coef', type=float, required=True, default=0.3)
 @click.option('--landmarks_loss_coef', help='Landmarks loss coef', type=float, required=True, default=0.0)
 @click.option('--l2_reg_coef', help='l2 reg loss coef', type=float, required=True, default=0.8)
@@ -83,6 +84,7 @@ def train_latent_mapper(
         learning_rate: float,
         n_epochs: int,
         resume: str,
+        mapper_neg_slope: float,
         identity_loss_coef: float,
         landmarks_loss_coef: float,
         l2_reg_coef: float,
@@ -112,7 +114,7 @@ def train_latent_mapper(
     temp_shapes = get_temp_shapes(G)
     resolution_dict = {256: 6, 512: 7, 1024: 8}
 
-    mapper = Mapper().to(device)
+    mapper = Mapper(mapper_neg_slope).to(device)
     if resume:
         mapper.load_state_dict(torch.load(resume, map_location=device))
         print(f"Loaded mapper from {resume}")

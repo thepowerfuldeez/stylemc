@@ -10,14 +10,14 @@ from encoder4editing.models.stylegan2.model import EqualLinear, PixelNorm
 
 
 class ModulationModule(Module):
-    def __init__(self, layernum):
+    def __init__(self, layernum, neg_slope=0.01):
         super(ModulationModule, self).__init__()
         self.layernum = layernum
         self.fc = Linear(512, 512)
         self.norm = LayerNorm([self.layernum, 512], elementwise_affine=False)
         # self.gamma_function = Sequential(Linear(512, 512), LayerNorm([512]), LeakyReLU(), Linear(512, 512))
         # self.beta_function = Sequential(Linear(512, 512), LayerNorm([512]), LeakyReLU(), Linear(512, 512))
-        self.leakyrelu = LeakyReLU()
+        self.leakyrelu = LeakyReLU(negative_slope=neg_slope)
 
     def forward(self, x, embedding):
         x = self.fc(x)
@@ -33,11 +33,11 @@ class ModulationModule(Module):
 
 
 class SubMapperModulation(Module):
-    def __init__(self, layernum=4):
+    def __init__(self, layernum=4, neg_slope=0.01):
         super(SubMapperModulation, self).__init__()
         self.layernum = layernum
         self.pixelnorm = PixelNorm()
-        self.modulation_module_list = nn.ModuleList([ModulationModule(self.layernum) for i in range(5)])
+        self.modulation_module_list = nn.ModuleList([ModulationModule(self.layernum, neg_slope) for i in range(5)])
 
     def forward(self, x, embedding=None):
         x = self.pixelnorm(x)
@@ -66,10 +66,10 @@ class SubMapper(Module):
 
 
 class Mapper(Module):
-    def __init__(self):
+    def __init__(self, neg_slope=0.01):
         super(Mapper, self).__init__()
-        self.course_mapping = SubMapperModulation()
-        self.medium_mapping = SubMapperModulation()
+        self.course_mapping = SubMapperModulation(neg_slope=neg_slope)
+        self.medium_mapping = SubMapperModulation(neg_slope=neg_slope)
 
     def forward(self, x, embedding=None):
         """
