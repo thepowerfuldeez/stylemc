@@ -44,6 +44,8 @@ S_TRAINABLE_SPACE_CHANNELS = [2, 3, 5, 6, 8, 9, 11, 12]
 @click.pass_context
 @click.option('--network', 'network_pkl', help='Network pickle filename', required=False,
               default="https://nvlabs-fi-cdn.nvidia.com/stylegan2-ada-pytorch/pretrained/transfer-learning-source-nets/ffhq-res512-mirror-stylegan2-noaug.pkl")
+@click.option('--network2', 'network2_pkl', help='Network pickle filename', required=False,
+              default="https://nvlabs-fi-cdn.nvidia.com/stylegan2-ada-pytorch/pretrained/transfer-learning-source-nets/ffhq-res512-mirror-stylegan2-noaug.pkl")
 @click.option('--noise-mode', help='Noise mode', type=click.Choice(['const', 'random', 'none']), default='const',
               show_default=True)
 @click.option('--s_input', help='Projection result file', type=str, metavar='FILE')
@@ -68,6 +70,7 @@ S_TRAINABLE_SPACE_CHANNELS = [2, 3, 5, 6, 8, 9, 11, 12]
 def train_latent_mapper(
         ctx: click.Context,
         network_pkl: str,
+        network2_pkl: str,
         noise_mode: str,
         outdir: str,
         s_input: Optional[str],
@@ -91,6 +94,13 @@ def train_latent_mapper(
     with dnnlib.util.open_url(network_pkl) as f:
         G = legacy.load_network_pkl(f)['G_ema'].to(device)  # type: ignore
     os.makedirs(outdir, exist_ok=True)
+
+    if network2_pkl != network_pkl:
+        print("using 2 generators")
+        print('Loading networks from "%s"...' % network2_pkl)
+        device = torch.device('cuda')
+        with dnnlib.util.open_url(network2_pkl) as f:
+            G2 = legacy.load_network_pkl(f)['G_ema'].to(device)  # type: ignore
 
     mean, std = get_mean_std(device)
     img_size = 224
@@ -143,10 +153,13 @@ def train_latent_mapper(
             styles2 = styles.clone()
             styles2[:, S_TRAINABLE_SPACE_CHANNELS] += delta
 
-            _, img = generate_image(G, resolution_dict[resolution], styles2, temp_shapes, noise_mode)
+            if network_pkl != network2_pkl:
+                _, img = generate_image(G2, resolution_dict[resolution], styles2, temp_shapes, noise_mode, device)
+            else:
+                _, img = generate_image(G, resolution_dict[resolution], styles2, temp_shapes, noise_mode, device)
 
             # use original image for identity loss
-            _, original_img = generate_image(G, resolution_dict[resolution], styles, temp_shapes, noise_mode)
+            _, original_img = generate_image(G, resolution_dict[resolution], styles, temp_shapes, noise_mode, device)
 
             # ------ COMPUTE LOSS --------
             loss, loss_dict = compute_loss(

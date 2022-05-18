@@ -37,7 +37,9 @@ STOPLIST_S_IDS = [4863, 6247, 4943, 4724, 3114, 4623, 4726]
 
 @click.command()
 @click.pass_context
-@click.option('--network', 'network_pkl', help='Network pickle filename', required=False,
+@click.option('--network', 'network_pkl', help='Network pickle filename (for original img)', required=False,
+              default="https://nvlabs-fi-cdn.nvidia.com/stylegan2-ada-pytorch/pretrained/transfer-learning-source-nets/ffhq-res512-mirror-stylegan2-noaug.pkl")
+@click.option('--network2', 'network2_pkl', help='Network2 pickle filename (for generation)', required=False,
               default="https://nvlabs-fi-cdn.nvidia.com/stylegan2-ada-pytorch/pretrained/transfer-learning-source-nets/ffhq-res512-mirror-stylegan2-noaug.pkl")
 @click.option('--noise-mode', help='Noise mode', type=click.Choice(['const', 'random', 'none']), default='const',
               show_default=True)
@@ -54,6 +56,7 @@ STOPLIST_S_IDS = [4863, 6247, 4943, 4724, 3114, 4623, 4726]
 def generate_images(
         ctx: click.Context,
         network_pkl: str,
+        network2_pkl: str,
         noise_mode: str,
         outdir: str,
         projected_w: Optional[str],
@@ -70,6 +73,13 @@ def generate_images(
     with dnnlib.util.open_url(network_pkl) as f:
         G = legacy.load_network_pkl(f)['G_ema'].to(device)  # type: ignore
     os.makedirs(outdir, exist_ok=True)
+
+    if network2_pkl != network_pkl:
+        print("using 2 generators")
+        print('Loading networks from "%s"...' % network2_pkl)
+        device = torch.device('cuda')
+        with dnnlib.util.open_url(network2_pkl) as f:
+            G2 = legacy.load_network_pkl(f)['G_ema'].to(device)  # type: ignore
 
     # Synthesize the result of a W projection.
     if projected_w is not None:
@@ -151,8 +161,12 @@ def generate_images(
                     styles_direction = global_styles_direction
                 styles += styles_direction * grad_change
 
-                xs, img = generate_image(G, 100, styles[[i]], temp_shapes, noise_mode, device,
-                                         use_blending=use_blending, xs_original=xs_original, masks_dict=masks_dict)
+                if network_pkl != network2_pkl and j == 1:
+                    xs, img = generate_image(G2, 100, styles[[i]], temp_shapes, noise_mode, device,
+                                             use_blending=use_blending, xs_original=xs_original, masks_dict=masks_dict)
+                else:
+                    xs, img = generate_image(G, 100, styles[[i]], temp_shapes, noise_mode, device,
+                                             use_blending=use_blending, xs_original=xs_original, masks_dict=masks_dict)
                 img = (img.permute(0, 2, 3, 1) * 127.5 + 128).clamp(0, 255)
                 img_arr = img[0].to(torch.uint8).cpu().numpy()
 
@@ -172,8 +186,12 @@ def generate_images(
 
                     assert 'bg_mask' in masks_dict
                     # after we have xs_original and computed masks for generated image, regenerate it again with blending
-                    xs, img = generate_image(G, 100, styles[[i]], temp_shapes, noise_mode, device,
-                                             use_blending=use_blending, xs_original=xs_original, masks_dict=masks_dict)
+                    if network_pkl != network2_pkl:
+                        xs, img = generate_image(G2, 100, styles[[i]], temp_shapes, noise_mode, device,
+                                                 use_blending=use_blending, xs_original=xs_original, masks_dict=masks_dict)
+                    else:
+                        xs, img = generate_image(G, 100, styles[[i]], temp_shapes, noise_mode, device,
+                                                 use_blending=use_blending, xs_original=xs_original, masks_dict=masks_dict)
                     img = (img.permute(0, 2, 3, 1) * 127.5 + 128).clamp(0, 255)
                     img_arr = img[0].to(torch.uint8).cpu().numpy()
 
