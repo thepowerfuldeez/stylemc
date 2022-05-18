@@ -101,6 +101,7 @@ def train_latent_mapper(
         device = torch.device('cuda')
         with dnnlib.util.open_url(network2_pkl) as f:
             G2 = legacy.load_network_pkl(f)['G_ema'].to(device)  # type: ignore
+        temp_shapes2 = get_temp_shapes(G2)
 
     mean, std = get_mean_std(device)
     img_size = 224
@@ -154,7 +155,7 @@ def train_latent_mapper(
             styles2[:, S_TRAINABLE_SPACE_CHANNELS] += delta
 
             if network_pkl != network2_pkl:
-                _, img = generate_image(G2, resolution_dict[resolution], styles2, temp_shapes, noise_mode, device)
+                _, img = generate_image(G2, resolution_dict[resolution], styles2, temp_shapes2, noise_mode, device)
             else:
                 _, img = generate_image(G, resolution_dict[resolution], styles2, temp_shapes, noise_mode, device)
 

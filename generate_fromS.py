@@ -80,6 +80,7 @@ def generate_images(
         device = torch.device('cuda')
         with dnnlib.util.open_url(network2_pkl) as f:
             G2 = legacy.load_network_pkl(f)['G_ema'].to(device)  # type: ignore
+        temp_shapes2 = get_temp_shapes(G2)
 
     # Synthesize the result of a W projection.
     if projected_w is not None:
@@ -162,7 +163,7 @@ def generate_images(
                 styles += styles_direction * grad_change
 
                 if network_pkl != network2_pkl and j == 1:
-                    xs, img = generate_image(G2, 100, styles[[i]], temp_shapes, noise_mode, device,
+                    xs, img = generate_image(G2, 100, styles[[i]], temp_shapes2, noise_mode, device,
                                              use_blending=use_blending, xs_original=xs_original, masks_dict=masks_dict)
                 else:
                     xs, img = generate_image(G, 100, styles[[i]], temp_shapes, noise_mode, device,
