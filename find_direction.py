@@ -125,12 +125,17 @@ def init_clip_loss(clip_loss_type, clip_type, device, text_prompt, negative_text
 def compute_landmarks_loss(gen_img_batch, original_img_batch,
                            landmarks_loss, landmarks_loss_coef, model, device, mean, std, img_size=224):
     if landmarks_loss_coef != 0:
-        landmarks1 = detect_landmarks([denorm_img(original_img_batch[i]) for i in range(len(original_img_batch))],
-                                      model, device, mean, std, img_size)
+        try:
+            landmarks1 = detect_landmarks([denorm_img(original_img_batch[i]) for i in range(len(original_img_batch))],
+                                          model, device, mean, std, img_size)
+        except:
+            landmarks1 = None
+
         try:
             landmarks2 = detect_landmarks([denorm_img(gen_img_batch[i]) for i in range(len(gen_img_batch))],
                                           model, device, mean, std, img_size)
             assert landmarks2 is not None
+            assert landmarks1 is not None
         except:
             print("could not detect landmarks")
             landmarks2 = landmarks1
