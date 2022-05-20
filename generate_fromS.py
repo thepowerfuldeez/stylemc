@@ -50,6 +50,8 @@ STOPLIST_S_IDS = [4863, 6247, 4943, 4724, 3114, 4623, 4726]
 @click.option('--outdir', help='Where to save the output images', type=str, required=True, metavar='DIR')
 @click.option('--text_prompt', help='Text', type=str, required=True)
 @click.option('--change_power', help='Change power', type=float, required=True, default=2.0)
+@click.option('--mapper_neg_slope', help='mapper hyperparam (leaky relu slope)', type=float, required=True,
+              default=0.01)
 @click.option('--use_blending', help='Perform segmentation + feature blending', type=int, required=True, default=0)
 @click.option('--use_whitelist', help='use s indices only from hardcoded list above as well as threshold of 1.0',
               type=int, required=True, default=0)
@@ -65,6 +67,7 @@ def generate_images(
         n: int,
         text_prompt: str,
         change_power: float,
+        mapper_neg_slope: float,
         use_blending: int,
         use_whitelist: int,
 ):
@@ -114,7 +117,7 @@ def generate_images(
 
         if use_mapper:
             mapper_sd = torch.load(f'{outdir}/mapper_{text_prompt.replace(" ", "_")}.pth')
-            mapper = Mapper()
+            mapper = Mapper(neg_slope=mapper_neg_slope)
             mapper.eval()
             mapper.load_state_dict(mapper_sd)
             mapper.to(device)
@@ -148,7 +151,7 @@ def generate_images(
                         delta = mapper(styles[i, S_TRAINABLE_SPACE_CHANNELS].unsqueeze(0))
 
                         if use_whitelist:
-                            delta[delta.abs() < 0.2] = 0.0
+                            delta[delta.abs() < 0.1] = 0.0
 
                         styles_direction[:, S_TRAINABLE_SPACE_CHANNELS] = delta
 
