@@ -135,10 +135,11 @@ def compute_landmarks_loss(gen_img_batch, original_img_batch,
             landmarks2 = detect_landmarks([denorm_img(gen_img_batch[i]) for i in range(len(gen_img_batch))],
                                           model, device, mean, std, img_size)
             assert landmarks2 is not None
-            assert landmarks1 is not None
         except:
             print("could not detect landmarks")
             landmarks2 = landmarks1
+            if landmarks1 is None:
+                return 0
         face_landmarks_loss = landmarks_loss(landmarks1, landmarks2)
     else:
         face_landmarks_loss = 0
