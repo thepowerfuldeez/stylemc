@@ -1,7 +1,6 @@
 import torch
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
-import clip
 from pathlib import Path
 from PIL import Image
 import cv2
